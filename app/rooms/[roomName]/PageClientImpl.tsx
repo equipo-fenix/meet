@@ -133,6 +133,9 @@ function VideoConferenceComponent(props: {
       publishDefaults: publishDefaults,
       audioCaptureDefaults: {
         deviceId: props.userChoices.audioDeviceId ?? undefined,
+        echoCancellation: true,   // elimina eco del audio
+        noiseSuppression: true,   // filtra ruido de fondo
+        autoGainControl: true,    // normaliza volumen automáticamente
       },
       // adaptiveStream: false → siempre recibe la capa de mayor calidad disponible
       // (antes: true bajaba automáticamente a 360p cuando el tile era pequeño)
@@ -231,7 +234,9 @@ function VideoConferenceComponent(props: {
   // ── Fix efecto espejo en compartir pantalla ──────────────────────────────
   // selfBrowserSurface:'exclude' → Chrome oculta la pestaña actual de las opciones
   // displaySurface:'window'      → sugiere compartir una ventana, no el monitor entero
+  // NOTA: iOS Safari no tiene getDisplayMedia — el guard evita crash en móvil
   React.useEffect(() => {
+    if (!navigator.mediaDevices?.getDisplayMedia) return; // iOS / móvil → skip
     const original = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getDisplayMedia = async (constraints?: DisplayMediaStreamOptions) => {
       const patched: DisplayMediaStreamOptions = {
