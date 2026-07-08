@@ -174,6 +174,7 @@ function VideoConferenceComponent(props: {
     const applyKrisp = async (pub: LocalTrackPublication) => {
       if (pub.kind === 'audio' && pub.track) {
         try {
+          // @ts-ignore — type mismatch entre krisp-noise-filter 0.4.x y livekit-client 2.x
           await pub.track.setProcessor(filter);
           console.log('[Krisp] activo en micrófono');
         } catch (e) {
