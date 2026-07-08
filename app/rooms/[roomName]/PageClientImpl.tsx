@@ -116,13 +116,15 @@ function VideoConferenceComponent(props: {
     }
     const videoCaptureDefaults: VideoCaptureOptions = {
       deviceId: props.userChoices.videoDeviceId ?? undefined,
-      resolution: props.options.hq ? VideoPresets.h2160 : VideoPresets.h720,
+      // 1080p por defecto (era 720p). Para 4K usa ?hq=true en la URL.
+      resolution: props.options.hq ? VideoPresets.h2160 : VideoPresets.h1080,
     };
     const publishDefaults: TrackPublishDefaults = {
       dtx: false,
+      // Simulcast 1080p+720p en modo normal (antes 540+216 — muy baja calidad)
       videoSimulcastLayers: props.options.hq
         ? [VideoPresets.h1080, VideoPresets.h720]
-        : [VideoPresets.h540, VideoPresets.h216],
+        : [VideoPresets.h720, VideoPresets.h360],
       red: !e2eeEnabled,
       videoCodec,
     };
@@ -223,6 +225,37 @@ function VideoConferenceComponent(props: {
     }
   }, [lowPowerMode]);
 
+  // ── Fix efecto espejo en compartir pantalla ──────────────────────────────
+  // selfBrowserSurface:'exclude' → Chrome oculta la pestaña actual de las opciones
+  // displaySurface:'window'      → sugiere compartir una ventana, no el monitor entero
+  React.useEffect(() => {
+    const original = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getDisplayMedia = async (constraints?: DisplayMediaStreamOptions) => {
+      const patched: DisplayMediaStreamOptions = {
+        ...constraints,
+        // @ts-ignore — propiedades Chrome no en el tipo estándar aún
+        selfBrowserSurface: 'exclude',
+        preferCurrentTab: false,
+        video: {
+          ...(typeof constraints?.video === 'object' && constraints.video !== null
+            ? constraints.video
+            : {}),
+          // @ts-ignore
+          displaySurface: 'window',
+          frameRate: { ideal: 30, max: 60 },
+          width:  { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: constraints?.audio ?? true,
+      };
+      return original(patched);
+    };
+    return () => {
+      navigator.mediaDevices.getDisplayMedia = original;
+    };
+  }, []);
+  // ── /Fix espejo ──────────────────────────────────────────────────────────
+
   return (
     <div className="lk-room-container">
       <RoomContext.Provider value={room}>
@@ -237,3 +270,4 @@ function VideoConferenceComponent(props: {
     </div>
   );
 }
+
