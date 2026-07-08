@@ -193,26 +193,29 @@ function VideoConferenceComponent(props: {
           connectOptions,
         )
         .then(() => {
-          // Pequeño delay para iOS — le da tiempo al sistema de inicializar la cámara
-          const delay = /iPhone|iPad|iPod/.test(navigator.userAgent) ? 800 : 0;
-          setTimeout(() => {
-            if (props.userChoices.videoEnabled) {
-              room.localParticipant.setCameraEnabled(true).catch((error) => {
-                // NotAllowedError en iOS = permisos denegados o contexto sin gesto.
-                // El usuario entra en modo solo-escucha (sin cámara) — no mostramos alert.
-                if (error?.name !== 'NotAllowedError' && error?.name !== 'NotFoundError') {
-                  handleError(error);
-                }
-              });
-            }
-            if (props.userChoices.audioEnabled) {
-              room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
-                if (error?.name !== 'NotAllowedError' && error?.name !== 'NotFoundError') {
-                  handleError(error);
-                }
-              });
-            }
-          }, delay);
+          // ── iOS: NO auto-activar cámara/mic desde código ──────────────────
+          // En iOS, getUserMedia solo funciona desde un gesto directo del usuario.
+          // El gesto "Join Room" ya expiró cuando llegamos aquí (async + delay).
+          // → El usuario activa 📹 y 🎙️ tocando los botones del ControlBar,
+          //   que SÍ son gestos válidos y publican el track correctamente.
+          const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+          if (isIOS) return; // iOS: esperar gesto del usuario en ControlBar
+
+          // ── Desktop / Android: auto-activar normalmente ────────────────────
+          if (props.userChoices.videoEnabled) {
+            room.localParticipant.setCameraEnabled(true).catch((error) => {
+              if (error?.name !== 'NotAllowedError' && error?.name !== 'NotFoundError') {
+                handleError(error);
+              }
+            });
+          }
+          if (props.userChoices.audioEnabled) {
+            room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
+              if (error?.name !== 'NotAllowedError' && error?.name !== 'NotFoundError') {
+                handleError(error);
+              }
+            });
+          }
         })
         .catch((error) => {
           handleError(error);
@@ -226,6 +229,16 @@ function VideoConferenceComponent(props: {
   }, [e2eeSetupComplete, room, props.connectionDetails, props.userChoices]);
 
   const lowPowerMode = useLowCPUOptimizer(room);
+
+  // Banner de hint para iOS — aparece 4s al entrar, recuerda tocar 📹🎙️
+  const [showIOSHint, setShowIOSHint] = React.useState(() =>
+    /iPhone|iPad|iPod/.test(navigator.userAgent)
+  );
+  React.useEffect(() => {
+    if (!showIOSHint) return;
+    const t = setTimeout(() => setShowIOSHint(false), 5000);
+    return () => clearTimeout(t);
+  }, [showIOSHint]);
 
   const router = useRouter();
   // Al salir → página "Sesión finalizada", NO el formulario de crear sala
@@ -292,6 +305,33 @@ function VideoConferenceComponent(props: {
         />
         {/* Panel de moderación — botón flotante 👥 con lista de participantes */}
         <ModeratorPanel roomName={props.connectionDetails.roomName} />
+
+        {/* Banner iOS: recordatorio de activar cámara/mic manualmente */}
+        {showIOSHint && (
+          <div
+            style={{
+              position: 'fixed',
+              top: '16px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(10,10,15,0.95)',
+              border: '1px solid rgba(201,168,76,0.4)',
+              borderRadius: '12px',
+              padding: '10px 18px',
+              zIndex: 9999,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ fontSize: '18px' }}>📹🎙️</span>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#ffffff' }}>
+              Toca los botones para activar tu cámara y micrófono
+            </span>
+          </div>
+        )}
         <DebugMode />
         <RecordingIndicator />
       </RoomContext.Provider>
