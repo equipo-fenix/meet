@@ -8,11 +8,11 @@ export default async function Page({
 }: {
   params: Promise<{ roomName: string }>;
   searchParams: Promise<{
-    // FIXME: We should not allow values for regions if in playground mode.
     region?: string;
     hq?: string;
     codec?: string;
     singlePC?: string;
+    role?: string; // 'host' | 'attendee'
   }>;
 }) {
   const _params = await params;
@@ -23,6 +23,8 @@ export default async function Page({
       : 'vp9';
   const hq = _searchParams.hq === 'true' ? true : false;
   const singlePC = _searchParams.singlePC !== 'false';
+  // role=host → panel de moderación visible; cualquier otro valor → asistente
+  const role = _searchParams.role === 'host' ? 'host' : 'attendee';
 
   return (
     <PageClientImpl
@@ -31,6 +33,7 @@ export default async function Page({
       hq={hq}
       codec={codec}
       singlePeerConnection={singlePC}
+      role={role}
     />
   );
 }
