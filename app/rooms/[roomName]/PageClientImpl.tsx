@@ -134,8 +134,11 @@ function VideoConferenceComponent(props: {
       audioCaptureDefaults: {
         deviceId: props.userChoices.audioDeviceId ?? undefined,
       },
-      adaptiveStream: true,
-      dynacast: true,
+      // adaptiveStream: false → siempre recibe la capa de mayor calidad disponible
+      // (antes: true bajaba automáticamente a 360p cuando el tile era pequeño)
+      adaptiveStream: false,
+      // dynacast: false → no limita calidad por ancho de banda estimado
+      dynacast: false,
       e2ee: keyProvider && worker && e2eeEnabled ? { keyProvider, worker } : undefined,
       singlePeerConnection: props.options.singlePeerConnection,
     };
