@@ -12,11 +12,17 @@ const COOKIE_KEY = 'random-participant-postfix';
 
 export async function GET(request: NextRequest) {
   try {
-    // Parse query parameters
     const roomName = request.nextUrl.searchParams.get('roomName');
     const participantName = request.nextUrl.searchParams.get('participantName');
     const metadata = request.nextUrl.searchParams.get('metadata') ?? '';
     const region = request.nextUrl.searchParams.get('region');
+
+    // ── Rol: host vs asistente ─────────────────────────────────────────────
+    // ?role=host → anfitrión (APEX lo pasa cuando crea la sala)
+    // sin parámetro → asistente normal
+    const role = request.nextUrl.searchParams.get('role') ?? 'attendee';
+    const isHost = role === 'host';
+
     if (!LIVEKIT_URL) {
       throw new Error('LIVEKIT_URL is not defined');
     }
@@ -33,20 +39,29 @@ export async function GET(request: NextRequest) {
       return new NextResponse('Missing required query parameter: participantName', { status: 400 });
     }
 
-    // Generate participant token
     if (!randomParticipantPostfix) {
       randomParticipantPostfix = randomString(4);
     }
+
+    // Embeber metadata con el rol — accesible desde el cliente via localParticipant.metadata
+    let participantMetadata: Record<string, unknown> = { isHost };
+    try {
+      if (metadata) {
+        const extra = JSON.parse(metadata);
+        participantMetadata = { ...participantMetadata, ...extra };
+      }
+    } catch (_) {}
+
     const participantToken = await createParticipantToken(
       {
         identity: `${participantName}__${randomParticipantPostfix}`,
         name: participantName,
-        metadata,
+        metadata: JSON.stringify(participantMetadata),
       },
       roomName,
+      isHost,
     );
 
-    // Return connection details
     const data: ConnectionDetails = {
       serverUrl: livekitServerUrl,
       roomName: roomName,
@@ -66,15 +81,20 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function createParticipantToken(userInfo: AccessTokenOptions, roomName: string) {
+function createParticipantToken(
+  userInfo: AccessTokenOptions,
+  roomName: string,
+  isHost = false,
+) {
   const at = new AccessToken(API_KEY, API_SECRET, userInfo);
-  at.ttl = '5m';
+  at.ttl = isHost ? '24h' : '8h';
   const grant: VideoGrant = {
     room: roomName,
     roomJoin: true,
-    canPublish: true,
+    canPublish: true,      // todos pueden publicar cámara/mic
     canPublishData: true,
     canSubscribe: true,
+    ...(isHost && { roomAdmin: true }), // solo el host tiene control admin
   };
   at.addGrant(grant);
   return at.toJwt();
