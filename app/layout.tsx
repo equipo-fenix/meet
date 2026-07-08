@@ -6,54 +6,46 @@ import { Toaster } from 'react-hot-toast';
 
 export const metadata: Metadata = {
   title: {
-    default: 'LiveKit Meet | Conference app build with LiveKit open source',
-    template: '%s',
+    default: 'Fénix Live | Plataforma de video en vivo',
+    template: '%s | Fénix Live',
   },
   description:
-    'LiveKit is an open source WebRTC project that gives you everything needed to build scalable and real-time audio and/or video experiences in your applications.',
+    'La plataforma de video en vivo de Fénix Academy. Únete a sesiones en vivo, webinars y reuniones privadas con César Escobar.',
   twitter: {
-    creator: '@livekitted',
-    site: '@livekitted',
+    creator: '@fenixacademy',
+    site: '@fenixacademy',
     card: 'summary_large_image',
   },
   openGraph: {
-    url: 'https://meet.livekit.io',
+    url: 'https://meet.academyfenix.com',
     images: [
       {
-        url: 'https://meet.livekit.io/images/livekit-meet-open-graph.png',
-        width: 2000,
-        height: 1000,
+        url: 'https://meet.academyfenix.com/og-image.png',
+        width: 1200,
+        height: 630,
         type: 'image/png',
       },
     ],
-    siteName: 'LiveKit Meet',
+    siteName: 'Fénix Live',
   },
   icons: {
     icon: {
       rel: 'icon',
       url: '/favicon.ico',
     },
-    apple: [
-      {
-        rel: 'apple-touch-icon',
-        url: '/images/livekit-apple-touch.png',
-        sizes: '180x180',
-      },
-      { rel: 'mask-icon', url: '/images/livekit-safari-pinned-tab.svg', color: '#070707' },
-    ],
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#070707',
+  themeColor: '#C9A84C',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body data-lk-theme="default">
-        <Toaster />
+    <html lang="es">
+      <body data-lk-theme="default" style={{ background: '#0a0a0f' }}>
         {children}
+        <Toaster />
       </body>
     </html>
   );
