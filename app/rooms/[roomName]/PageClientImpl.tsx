@@ -8,6 +8,7 @@ import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { SettingsMenu } from '@/lib/SettingsMenu';
 import { ConnectionDetails } from '@/lib/types';
 import {
+  ControlBar,
   formatChatMessageLinks,
   LocalUserChoices,
   PreJoin,
@@ -41,6 +42,7 @@ export function PageClientImpl(props: {
   hq: boolean;
   codec: VideoCodec;
   singlePeerConnection: boolean;
+  role: string; // 'host' | 'attendee'
 }) {
   const [preJoinChoices, setPreJoinChoices] = React.useState<LocalUserChoices | undefined>(
     undefined,
@@ -66,10 +68,12 @@ export function PageClientImpl(props: {
     if (props.region) {
       url.searchParams.append('region', props.region);
     }
+    // Pasar rol → el servidor genera token con roomAdmin y metadata {isHost}
+    url.searchParams.append('role', props.role);
     const connectionDetailsResp = await fetch(url.toString());
     const connectionDetailsData = await connectionDetailsResp.json();
     setConnectionDetails(connectionDetailsData);
-  }, []);
+  }, [props.role]);
   const handlePreJoinError = React.useCallback((e: any) => console.error(e), []);
 
   return (
@@ -91,9 +95,27 @@ export function PageClientImpl(props: {
             hq: props.hq,
             singlePeerConnection: props.singlePeerConnection,
           }}
+          role={props.role}
         />
       )}
     </main>
+  );
+}
+
+// ── ControlBar para asistentes: solo mic, cámara, chat y salir ───────────────
+// Oculta "Compartir pantalla" para participantes que no son host
+function AttendeeControlBar() {
+  return (
+    <ControlBar
+      controls={{
+        microphone: true,
+        camera: true,
+        screenShare: false,
+        chat: true,
+        leave: true,
+        settings: false,
+      }}
+    />
   );
 }
 
@@ -105,7 +127,10 @@ function VideoConferenceComponent(props: {
     codec: VideoCodec;
     singlePeerConnection: boolean;
   };
+  role: string; // 'host' | 'attendee'
 }) {
+  const isHost = props.role === 'host';
+
   const keyProvider = new ExternalE2EEKeyProvider();
   const { worker, e2eePassphrase } = useSetupE2EE();
   const e2eeEnabled = !!(e2eePassphrase && worker);
@@ -230,7 +255,7 @@ function VideoConferenceComponent(props: {
 
   const lowPowerMode = useLowCPUOptimizer(room);
 
-  // Banner de hint para iOS — aparece 4s al entrar, recuerda tocar 📹🎙️
+  // Banner de hint para iOS — aparece 5s al entrar, recuerda tocar 📹🎙️
   const [showIOSHint, setShowIOSHint] = React.useState(() =>
     /iPhone|iPad|iPod/.test(navigator.userAgent)
   );
@@ -302,9 +327,12 @@ function VideoConferenceComponent(props: {
         <VideoConference
           chatMessageFormatter={formatChatMessageLinks}
           SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
+          // Asistentes: solo mic, cámara, chat y salir (sin compartir pantalla)
+          // Host: barra completa con todas las opciones
+          ControlBarComponent={isHost ? undefined : AttendeeControlBar}
         />
-        {/* Panel de moderación — botón flotante 👥 con lista de participantes */}
-        <ModeratorPanel roomName={props.connectionDetails.roomName} />
+        {/* Panel de moderación — SOLO visible para el anfitrión (host) */}
+        {isHost && <ModeratorPanel roomName={props.connectionDetails.roomName} />}
 
         {/* Banner iOS: recordatorio de activar cámara/mic manualmente */}
         {showIOSHint && (
@@ -338,4 +366,3 @@ function VideoConferenceComponent(props: {
     </div>
   );
 }
-
