@@ -8,7 +8,6 @@ import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { SettingsMenu } from '@/lib/SettingsMenu';
 import { ConnectionDetails } from '@/lib/types';
 import {
-  ControlBar,
   formatChatMessageLinks,
   LocalUserChoices,
   PreJoin,
@@ -99,23 +98,6 @@ export function PageClientImpl(props: {
         />
       )}
     </main>
-  );
-}
-
-// ── ControlBar para asistentes: solo mic, cámara, chat y salir ───────────────
-// Oculta "Compartir pantalla" para participantes que no son host
-function AttendeeControlBar() {
-  return (
-    <ControlBar
-      controls={{
-        microphone: true,
-        camera: true,
-        screenShare: false,
-        chat: true,
-        leave: true,
-        settings: false,
-      }}
-    />
   );
 }
 
@@ -324,12 +306,16 @@ function VideoConferenceComponent(props: {
     <div className="lk-room-container">
       <RoomContext.Provider value={room}>
         <KeyboardShortcuts />
+        {/* Asistentes: ocultar "Compartir pantalla" via CSS — solo host lo ve */}
+        {!isHost && (
+          <style>{`
+            button[data-lk-source="screen_share"],
+            button[data-lk-source="screen_share_audio"] { display: none !important; }
+          `}</style>
+        )}
         <VideoConference
           chatMessageFormatter={formatChatMessageLinks}
           SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
-          // Asistentes: solo mic, cámara, chat y salir (sin compartir pantalla)
-          // Host: barra completa con todas las opciones
-          ControlBarComponent={isHost ? undefined : AttendeeControlBar}
         />
         {/* Panel de moderación — SOLO visible para el anfitrión (host) */}
         {isHost && <ModeratorPanel roomName={props.connectionDetails.roomName} />}
