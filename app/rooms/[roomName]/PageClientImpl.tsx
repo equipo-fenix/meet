@@ -17,6 +17,7 @@ import {
 import { ModeratorPanel } from './ModeratorPanel';
 import {
   ExternalE2EEKeyProvider,
+  LocalTrackPublication,
   RoomOptions,
   VideoCodec,
   VideoPresets,
@@ -27,6 +28,7 @@ import {
   TrackPublishDefaults,
   VideoCaptureOptions,
 } from 'livekit-client';
+import { KrispNoiseFilter, isKrispNoiseFilterSupported } from '@livekit/krisp-noise-filter';
 import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
@@ -146,6 +148,8 @@ function VideoConferenceComponent(props: {
         echoCancellation: true,   // elimina eco del audio
         noiseSuppression: true,   // filtra ruido de fondo
         autoGainControl: true,    // normaliza volumen automáticamente
+        // Mono: AEC funciona mejor con 1 canal (estéreo confunde el algoritmo)
+        channelCount: 1,
       },
       // adaptiveStream: false → siempre recibe la capa de mayor calidad disponible
       // (antes: true bajaba automáticamente a 360p cuando el tile era pequeño)
@@ -158,6 +162,36 @@ function VideoConferenceComponent(props: {
   }, [props.userChoices, props.options.hq, props.options.codec]);
 
   const room = React.useMemo(() => new Room(roomOptions), []);
+
+  // ── Krisp: cancelación de eco y ruido con IA ─────────────────────────────
+  // Se aplica automáticamente al micrófono cuando se publica el track.
+  // isKrispNoiseFilterSupported() verifica AudioWorklet (no disponible en Safari iOS).
+  React.useEffect(() => {
+    if (!isKrispNoiseFilterSupported()) return;
+
+    const filter = KrispNoiseFilter();
+
+    const applyKrisp = async (pub: LocalTrackPublication) => {
+      if (pub.kind === 'audio' && pub.track) {
+        try {
+          await pub.track.setProcessor(filter);
+          console.log('[Krisp] activo en micrófono');
+        } catch (e) {
+          console.warn('[Krisp] no se pudo aplicar:', e);
+        }
+      }
+    };
+
+    // Aplicar a tracks ya publicados (si el mic ya estaba encendido)
+    room.localParticipant.audioTrackPublications.forEach(applyKrisp);
+    // Aplicar a futuros tracks (cuando el usuario enciende mic)
+    room.on(RoomEvent.LocalTrackPublished, applyKrisp);
+
+    return () => {
+      room.off(RoomEvent.LocalTrackPublished, applyKrisp);
+    };
+  }, [room]);
+  // ── /Krisp ───────────────────────────────────────────────────────────────
 
   React.useEffect(() => {
     if (e2eeEnabled) {
