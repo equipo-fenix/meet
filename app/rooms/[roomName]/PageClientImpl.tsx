@@ -14,6 +14,7 @@ import {
   RoomContext,
   VideoConference,
 } from '@livekit/components-react';
+import { ModeratorPanel } from './ModeratorPanel';
 import {
   ExternalE2EEKeyProvider,
   RoomOptions,
@@ -48,7 +49,9 @@ export function PageClientImpl(props: {
     return {
       username: '',
       videoEnabled: true,
-      audioEnabled: true,
+      // Asistentes entran con micrófono apagado por defecto (webinar standard)
+      // El host puede activarlo desde la sala; los alumnos lo activan solo si quieren hablar
+      audioEnabled: false,
     };
   }, []);
   const [connectionDetails, setConnectionDetails] = React.useState<ConnectionDetails | undefined>(
@@ -225,7 +228,8 @@ function VideoConferenceComponent(props: {
   const lowPowerMode = useLowCPUOptimizer(room);
 
   const router = useRouter();
-  const handleOnLeave = React.useCallback(() => router.push('/'), [router]);
+  // Al salir → página "Sesión finalizada", NO el formulario de crear sala
+  const handleOnLeave = React.useCallback(() => router.push('/salir'), [router]);
   const handleError = React.useCallback((error: Error) => {
     console.error(error);
     // Errores de permisos en iOS son normales — no mostrar alert intrusivo
@@ -286,6 +290,8 @@ function VideoConferenceComponent(props: {
           chatMessageFormatter={formatChatMessageLinks}
           SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
         />
+        {/* Panel de moderación — botón flotante 👥 con lista de participantes */}
+        <ModeratorPanel roomName={props.connectionDetails.roomName} />
         <DebugMode />
         <RecordingIndicator />
       </RoomContext.Provider>
