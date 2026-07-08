@@ -189,19 +189,31 @@ function VideoConferenceComponent(props: {
           props.connectionDetails.participantToken,
           connectOptions,
         )
+        .then(() => {
+          // Pequeño delay para iOS — le da tiempo al sistema de inicializar la cámara
+          const delay = /iPhone|iPad|iPod/.test(navigator.userAgent) ? 800 : 0;
+          setTimeout(() => {
+            if (props.userChoices.videoEnabled) {
+              room.localParticipant.setCameraEnabled(true).catch((error) => {
+                // NotAllowedError en iOS = permisos denegados o contexto sin gesto.
+                // El usuario entra en modo solo-escucha (sin cámara) — no mostramos alert.
+                if (error?.name !== 'NotAllowedError' && error?.name !== 'NotFoundError') {
+                  handleError(error);
+                }
+              });
+            }
+            if (props.userChoices.audioEnabled) {
+              room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
+                if (error?.name !== 'NotAllowedError' && error?.name !== 'NotFoundError') {
+                  handleError(error);
+                }
+              });
+            }
+          }, delay);
+        })
         .catch((error) => {
           handleError(error);
         });
-      if (props.userChoices.videoEnabled) {
-        room.localParticipant.setCameraEnabled(true).catch((error) => {
-          handleError(error);
-        });
-      }
-      if (props.userChoices.audioEnabled) {
-        room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
-          handleError(error);
-        });
-      }
     }
     return () => {
       room.off(RoomEvent.Disconnected, handleOnLeave);
@@ -216,7 +228,9 @@ function VideoConferenceComponent(props: {
   const handleOnLeave = React.useCallback(() => router.push('/'), [router]);
   const handleError = React.useCallback((error: Error) => {
     console.error(error);
-    alert(`Encountered an unexpected error, check the console logs for details: ${error.message}`);
+    // Errores de permisos en iOS son normales — no mostrar alert intrusivo
+    if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') return;
+    alert(`Error inesperado: ${error.message}`);
   }, []);
   const handleEncryptionError = React.useCallback((error: Error) => {
     console.error(error);
