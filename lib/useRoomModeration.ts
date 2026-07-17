@@ -34,6 +34,12 @@ export interface ModerationState {
   raisedHands: RaisedHand[];
   /** Invitación pendiente del host hacia este participante */
   pendingInvite: PendingInviteType;
+  /**
+   * true cuando el host ha invitado a este participante a hablar y aceptó.
+   * Controla si el botón de micrófono está visible/activo en el ControlBar.
+   * El host siempre tiene micUnlocked = true (no necesita invitación).
+   */
+  micUnlocked: boolean;
   /** Acciones disponibles (host o participante según rol) */
   actions: {
     // Host
@@ -60,6 +66,14 @@ const warnToast = { background: '#1a1a2e', color: '#ffffff', border: '1px solid 
 export function useRoomModeration(room: Room, isHost: boolean): ModerationState {
   const [raisedHands, setRaisedHands] = React.useState<RaisedHand[]>([]);
   const [pendingInvite, setPendingInvite] = React.useState<PendingInviteType>(null);
+  // El host siempre tiene el mic desbloqueado; los participantes lo desbloquean
+  // solo cuando aceptan la invitación del host a hablar.
+  const [micUnlocked, setMicUnlocked] = React.useState<boolean>(isHost);
+
+  // Sincronizar si `isHost` cambia en caliente (raro, pero defensivo)
+  React.useEffect(() => {
+    if (isHost) setMicUnlocked(true);
+  }, [isHost]);
 
   // ── Recepción de DataMessages ──────────────────────────────────────────────
   React.useEffect(() => {
@@ -102,7 +116,7 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
         // Los participantes reciben eventos del host
         switch (msg.type) {
           case MSG.HOST_MUTED_YOU:
-            toast('El anfitrión silenció tu micrófono. Puedes solicitar hablar nuevamente.', {
+            toast('El anfitrión silenció tu micrófono.', {
               duration: 8000, icon: '🔇', style: warnToast,
             });
             break;
@@ -242,6 +256,8 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
     if (accepted) {
       try {
         if (pendingInvite === 'speak') {
+          // Desbloquear botón mic en ControlBar y activar el micrófono
+          setMicUnlocked(true);
           await room.localParticipant.setMicrophoneEnabled(true);
         } else {
           await room.localParticipant.setCameraEnabled(true);
@@ -256,6 +272,7 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
   return {
     raisedHands,
     pendingInvite,
+    micUnlocked,
     actions: {
       muteParticipant,
       muteAll,
