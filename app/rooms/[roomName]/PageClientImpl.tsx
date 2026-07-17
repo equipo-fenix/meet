@@ -29,6 +29,7 @@ import {
   VideoCaptureOptions,
 } from 'livekit-client';
 import { KrispNoiseFilter, isKrispNoiseFilterSupported } from '@livekit/krisp-noise-filter';
+import { VideoEnhanceProcessor, isVideoEnhanceSupported } from '@/lib/VideoEnhanceProcessor';
 import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
@@ -121,6 +122,13 @@ function VideoConferenceComponent(props: {
 
   const [e2eeSetupComplete, setE2eeSetupComplete] = React.useState(false);
 
+  // ── Mejora de imagen — estado (solo host) ────────────────────────────────
+  const [videoEnhanced, setVideoEnhanced]     = React.useState(false);
+  const [enhanceMs, setEnhanceMs]             = React.useState<number | null>(null);
+  const processorRef  = React.useRef<VideoEnhanceProcessor | null>(null);
+  const perfTimerRef  = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  // ── /Mejora de imagen ────────────────────────────────────────────────────
+
   const roomOptions = React.useMemo((): RoomOptions => {
     let videoCodec: VideoCodec | undefined = props.options.codec ? props.options.codec : 'h264'; // H264: hw accel VideoToolbox en Apple (VP9 SVC = software fallback)
     if (e2eeEnabled && (videoCodec === 'av1' || videoCodec === 'vp9')) {
@@ -193,6 +201,77 @@ function VideoConferenceComponent(props: {
     };
   }, [room]);
   // ── /Krisp ───────────────────────────────────────────────────────────────
+
+  // ── Toggle mejora de imagen (solo host) ──────────────────────────────────
+  const toggleVideoEnhancement = React.useCallback(async () => {
+    // Buscar track de cámara publicado (excluye pantalla compartida)
+    const camPub = Array.from(room.localParticipant.videoTrackPublications.values())
+      .find(p => p.source === 'camera' && p.track);
+    if (!camPub?.track) {
+      console.warn('[VideoEnhance] no hay track de cámara activo');
+      return;
+    }
+
+    if (videoEnhanced) {
+      // ── Desactivar ───────────────────────────────────────────────────────
+      try {
+        await camPub.track.stopProcessor();
+      } catch (e) {
+        console.warn('[VideoEnhance] stopProcessor error:', e);
+      }
+      if (processorRef.current) {
+        await processorRef.current.destroy();
+        processorRef.current = null;
+      }
+      if (perfTimerRef.current) {
+        clearInterval(perfTimerRef.current);
+        perfTimerRef.current = null;
+      }
+      setEnhanceMs(null);
+      setVideoEnhanced(false);
+      console.log('[VideoEnhance] desactivada');
+    } else {
+      // ── Activar ──────────────────────────────────────────────────────────
+      if (!isVideoEnhanceSupported()) {
+        alert('Tu navegador no soporta mejora de imagen (requiere Chrome 94+ o Edge 94+)');
+        return;
+      }
+      const proc = new VideoEnhanceProcessor();
+      try {
+        // @ts-ignore — VideoEnhanceProcessor implementa la interfaz TrackProcessor<video>
+        //              pero el tipo genérico no coincide con LocalVideoTrack.setProcessor()
+        await camPub.track.setProcessor(proc);
+        processorRef.current = proc;
+        // Polling de métricas de rendimiento (1 vez/segundo)
+        perfTimerRef.current = setInterval(() => {
+          if (processorRef.current) {
+            setEnhanceMs(processorRef.current.lastFrameMs);
+          }
+        }, 1000);
+        setVideoEnhanced(true);
+        console.log('[VideoEnhance] activa — shader WebGL2 aplicado a cámara');
+      } catch (err) {
+        console.error('[VideoEnhance] error al activar:', err);
+        await proc.destroy();
+        alert('No se pudo activar la mejora de imagen. Revisa la consola para más detalles.');
+      }
+    }
+  }, [room, videoEnhanced]);
+
+  // Limpiar procesador al desmontar el componente (salir de la sala)
+  React.useEffect(() => {
+    return () => {
+      if (processorRef.current) {
+        processorRef.current.destroy();
+        processorRef.current = null;
+      }
+      if (perfTimerRef.current) {
+        clearInterval(perfTimerRef.current);
+        perfTimerRef.current = null;
+      }
+    };
+  }, []);
+  // ── /Toggle mejora de imagen ─────────────────────────────────────────────
 
   React.useEffect(() => {
     if (e2eeEnabled) {
@@ -354,6 +433,64 @@ function VideoConferenceComponent(props: {
         />
         {/* Panel de moderación — SOLO visible para el anfitrión (host) */}
         {isHost && <ModeratorPanel roomName={props.connectionDetails.roomName} />}
+
+        {/* Botón mejora de imagen — SOLO host, SOLO Chrome/Edge (Breakout Box API) */}
+        {isHost && isVideoEnhanceSupported() && (
+          <div
+            style={{
+              position: 'fixed',
+              bottom: '80px',
+              right: '16px',
+              zIndex: 9999,
+            }}
+          >
+            <button
+              onClick={toggleVideoEnhancement}
+              title={
+                videoEnhanced
+                  ? 'Desactivar mejora de imagen'
+                  : 'Activar mejora de imagen (nitidez · contraste · brillo · color)'
+              }
+              style={{
+                background: videoEnhanced
+                  ? 'rgba(201,168,76,0.92)'
+                  : 'rgba(10,10,15,0.85)',
+                border: `1px solid ${videoEnhanced ? 'rgba(201,168,76,0.7)' : 'rgba(255,255,255,0.18)'}`,
+                borderRadius: '10px',
+                padding: '8px 14px',
+                color: videoEnhanced ? '#0a0a0f' : '#ffffff',
+                fontSize: '12px',
+                fontWeight: 700,
+                letterSpacing: '0.02em',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: videoEnhanced
+                  ? '0 2px 14px rgba(201,168,76,0.35)'
+                  : '0 2px 12px rgba(0,0,0,0.45)',
+                transition: 'all 0.18s ease',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+              }}
+            >
+              <span style={{ fontSize: '14px' }}>✨</span>
+              <span>{videoEnhanced ? 'Mejora activa' : 'Mejorar imagen'}</span>
+              {videoEnhanced && enhanceMs !== null && (
+                <span
+                  style={{
+                    opacity: 0.65,
+                    fontSize: '10px',
+                    fontWeight: 400,
+                    marginLeft: '2px',
+                  }}
+                >
+                  {enhanceMs.toFixed(1)}ms
+                </span>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Banner iOS: recordatorio de activar cámara/mic manualmente */}
         {showIOSHint && (
