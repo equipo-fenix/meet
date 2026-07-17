@@ -54,7 +54,6 @@ export function PageClientImpl(props: {
       username: '',
       videoEnabled: true,
       // Asistentes entran con micrófono apagado por defecto (webinar standard)
-      // El host puede activarlo desde la sala; los alumnos lo activan solo si quieren hablar
       audioEnabled: false,
     };
   }, []);
@@ -70,7 +69,6 @@ export function PageClientImpl(props: {
     if (props.region) {
       url.searchParams.append('region', props.region);
     }
-    // Pasar rol → el servidor genera token con roomAdmin y metadata {isHost}
     url.searchParams.append('role', props.role);
     const connectionDetailsResp = await fetch(url.toString());
     const connectionDetailsData = await connectionDetailsResp.json();
@@ -112,7 +110,7 @@ function VideoConferenceComponent(props: {
     codec: VideoCodec;
     singlePeerConnection: boolean;
   };
-  role: string; // 'host' | 'attendee'
+  role: string;
 }) {
   const isHost = props.role === 'host';
 
@@ -123,25 +121,26 @@ function VideoConferenceComponent(props: {
   const [e2eeSetupComplete, setE2eeSetupComplete] = React.useState(false);
 
   // ── Mejora de imagen — estado (solo host) ────────────────────────────────
-  const [videoEnhanced, setVideoEnhanced]     = React.useState(false);
-  const [enhanceMs, setEnhanceMs]             = React.useState<number | null>(null);
-  const processorRef  = React.useRef<VideoEnhanceProcessor | null>(null);
-  const perfTimerRef  = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const [videoEnhanced, setVideoEnhanced]   = React.useState(false);
+  const [enhanceMs, setEnhanceMs]           = React.useState<number | null>(null);
+  const processorRef     = React.useRef<VideoEnhanceProcessor | null>(null);
+  const perfTimerRef     = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  // Ref para evitar stale closure en event handlers de LiveKit
+  const videoEnhancedRef = React.useRef(false);
+  React.useEffect(() => { videoEnhancedRef.current = videoEnhanced; }, [videoEnhanced]);
   // ── /Mejora de imagen ────────────────────────────────────────────────────
 
   const roomOptions = React.useMemo((): RoomOptions => {
-    let videoCodec: VideoCodec | undefined = props.options.codec ? props.options.codec : 'h264'; // H264: hw accel VideoToolbox en Apple (VP9 SVC = software fallback)
+    let videoCodec: VideoCodec | undefined = props.options.codec ? props.options.codec : 'h264';
     if (e2eeEnabled && (videoCodec === 'av1' || videoCodec === 'vp9')) {
       videoCodec = undefined;
     }
     const videoCaptureDefaults: VideoCaptureOptions = {
       deviceId: props.userChoices.videoDeviceId ?? undefined,
-      // 1080p por defecto (era 720p). Para 4K usa ?hq=true en la URL.
       resolution: props.options.hq ? VideoPresets.h2160 : VideoPresets.h1080,
     };
     const publishDefaults: TrackPublishDefaults = {
       dtx: false,
-      // Simulcast 1080p+720p en modo normal (antes 540+216 — muy baja calidad)
       videoSimulcastLayers: props.options.hq
         ? [VideoPresets.h1080, VideoPresets.h720]
         : [VideoPresets.h720, VideoPresets.h360],
@@ -149,20 +148,16 @@ function VideoConferenceComponent(props: {
       videoCodec,
     };
     return {
-      videoCaptureDefaults: videoCaptureDefaults,
-      publishDefaults: publishDefaults,
+      videoCaptureDefaults,
+      publishDefaults,
       audioCaptureDefaults: {
         deviceId: props.userChoices.audioDeviceId ?? undefined,
-        echoCancellation: true,   // elimina eco del audio
-        noiseSuppression: true,   // filtra ruido de fondo
-        autoGainControl: true,    // normaliza volumen automáticamente
-        // Mono: AEC funciona mejor con 1 canal (estéreo confunde el algoritmo)
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
         channelCount: 1,
       },
-      // adaptiveStream: false → siempre recibe la capa de mayor calidad disponible
-      // (antes: true bajaba automáticamente a 360p cuando el tile era pequeño)
       adaptiveStream: false,
-      // dynacast: false → no limita calidad por ancho de banda estimado
       dynacast: false,
       e2ee: keyProvider && worker && e2eeEnabled ? { keyProvider, worker } : undefined,
       singlePeerConnection: props.options.singlePeerConnection,
@@ -171,18 +166,14 @@ function VideoConferenceComponent(props: {
 
   const room = React.useMemo(() => new Room(roomOptions), []);
 
-  // ── Krisp: cancelación de eco y ruido con IA ─────────────────────────────
-  // Se aplica automáticamente al micrófono cuando se publica el track.
-  // isKrispNoiseFilterSupported() verifica AudioWorklet (no disponible en Safari iOS).
+  // ── Krisp: cancelación de ruido con IA ───────────────────────────────────
   React.useEffect(() => {
     if (!isKrispNoiseFilterSupported()) return;
-
     const filter = KrispNoiseFilter();
-
     const applyKrisp = async (pub: LocalTrackPublication) => {
       if (pub.kind === 'audio' && pub.track) {
         try {
-          // @ts-ignore — type mismatch entre krisp-noise-filter 0.4.x y livekit-client 2.x
+          // @ts-ignore
           await pub.track.setProcessor(filter);
           console.log('[Krisp] activo en micrófono');
         } catch (e) {
@@ -190,23 +181,17 @@ function VideoConferenceComponent(props: {
         }
       }
     };
-
-    // Aplicar a tracks ya publicados (si el mic ya estaba encendido)
     room.localParticipant.audioTrackPublications.forEach(applyKrisp);
-    // Aplicar a futuros tracks (cuando el usuario enciende mic)
     room.on(RoomEvent.LocalTrackPublished, applyKrisp);
-
-    return () => {
-      room.off(RoomEvent.LocalTrackPublished, applyKrisp);
-    };
+    return () => { room.off(RoomEvent.LocalTrackPublished, applyKrisp); };
   }, [room]);
   // ── /Krisp ───────────────────────────────────────────────────────────────
 
-  // ── Toggle mejora de imagen (solo host) ──────────────────────────────────
+  // ── Toggle mejora de imagen ───────────────────────────────────────────────
   const toggleVideoEnhancement = React.useCallback(async () => {
-    // Buscar track de cámara publicado (excluye pantalla compartida)
     const camPub = Array.from(room.localParticipant.videoTrackPublications.values())
       .find(p => p.source === 'camera' && p.track);
+
     if (!camPub?.track) {
       console.warn('[VideoEnhance] no hay track de cámara activo');
       return;
@@ -214,19 +199,14 @@ function VideoConferenceComponent(props: {
 
     if (videoEnhanced) {
       // ── Desactivar ───────────────────────────────────────────────────────
-      try {
-        await camPub.track.stopProcessor();
-      } catch (e) {
+      try { await camPub.track.stopProcessor(); } catch (e) {
         console.warn('[VideoEnhance] stopProcessor error:', e);
       }
       if (processorRef.current) {
         await processorRef.current.destroy();
         processorRef.current = null;
       }
-      if (perfTimerRef.current) {
-        clearInterval(perfTimerRef.current);
-        perfTimerRef.current = null;
-      }
+      if (perfTimerRef.current) { clearInterval(perfTimerRef.current); perfTimerRef.current = null; }
       setEnhanceMs(null);
       setVideoEnhanced(false);
       console.log('[VideoEnhance] desactivada');
@@ -236,42 +216,90 @@ function VideoConferenceComponent(props: {
         alert('Tu navegador no soporta mejora de imagen (requiere Chrome 94+ o Edge 94+)');
         return;
       }
-      const proc = new VideoEnhanceProcessor();
-      try {
-        // @ts-ignore — VideoEnhanceProcessor implementa la interfaz TrackProcessor<video>
-        //              pero el tipo genérico no coincide con LocalVideoTrack.setProcessor()
-        await camPub.track.setProcessor(proc);
-        processorRef.current = proc;
-        // Polling de métricas de rendimiento (1 vez/segundo)
-        perfTimerRef.current = setInterval(() => {
-          if (processorRef.current) {
-            setEnhanceMs(processorRef.current.lastFrameMs);
-          }
-        }, 1000);
-        setVideoEnhanced(true);
-        console.log('[VideoEnhance] activa — shader WebGL2 aplicado a cámara');
-      } catch (err) {
-        console.error('[VideoEnhance] error al activar:', err);
-        await proc.destroy();
-        alert('No se pudo activar la mejora de imagen. Revisa la consola para más detalles.');
-      }
+      await applyEnhancement(camPub.track);
     }
   }, [room, videoEnhanced]);
 
-  // Limpiar procesador al desmontar el componente (salir de la sala)
+  // Función auxiliar: aplica el processor a un track específico.
+  // Usada por el toggle Y por el re-apply automático en camera recycle.
+  const applyEnhancement = React.useCallback(async (track: { setProcessor: (p: unknown) => Promise<void> }) => {
+    const proc = new VideoEnhanceProcessor();
+    try {
+      // @ts-ignore — VideoEnhanceProcessor implementa TrackProcessor<video>
+      await track.setProcessor(proc);
+      processorRef.current = proc;
+
+      // Limpiar timer anterior si existía
+      if (perfTimerRef.current) { clearInterval(perfTimerRef.current); }
+
+      // Polling: métricas + sync UI con estado real del processor
+      perfTimerRef.current = setInterval(() => {
+        const camPubNow = Array.from(room.localParticipant.videoTrackPublications.values())
+          .find(p => p.source === 'camera' && p.track);
+        const activeProc = camPubNow?.track?.getProcessor?.();
+
+        // Detectar si el processor fue desconectado externamente
+        if (!activeProc || activeProc.name !== 'fenix-video-enhance') {
+          console.warn('[VideoEnhance] processor desconectado — sincronizando UI');
+          if (perfTimerRef.current) { clearInterval(perfTimerRef.current); perfTimerRef.current = null; }
+          processorRef.current = null;
+          setEnhanceMs(null);
+          setVideoEnhanced(false);
+          return;
+        }
+
+        setEnhanceMs(processorRef.current?.lastFrameMs ?? null);
+      }, 1000);
+
+      setVideoEnhanced(true);
+      console.log('[VideoEnhance] activa — shader WebGL2 en cámara');
+    } catch (err) {
+      console.error('[VideoEnhance] error al activar:', err);
+      await proc.destroy();
+      // No dejar la cámara en negro — asegurar que el processor está limpio
+      alert('No se pudo activar la mejora de imagen. Revisa la consola.');
+    }
+  }, [room]);
+
+  // ── Re-apply automático si la cámara crea un track nuevo ─────────────────
+  // LiveKit crea un MediaStreamTrack NUEVO al hacer setCameraEnabled(false/true).
+  // El processor se desconecta del track anterior. Si videoEnhanced era true,
+  // re-aplicamos automáticamente al track nuevo.
+  // Regla: estado UI = estado real del processor EN TODO MOMENTO.
   React.useEffect(() => {
-    return () => {
+    const handleLocalTrackPublished = async (pub: LocalTrackPublication) => {
+      // Solo cámara — no screen share, no audio
+      if (pub.source !== 'camera' || !pub.track) return;
+      if (!videoEnhancedRef.current) return; // mejora no estaba activa
+
+      // El toggle está activo pero el nuevo track no tiene processor
+      const existingProc = pub.track.getProcessor?.();
+      if (existingProc?.name === 'fenix-video-enhance') return; // ya tiene uno
+
+      console.log('[VideoEnhance] nuevo track de cámara detectado — re-aplicando mejora');
+
+      // Destruir processor anterior si quedó huérfano
       if (processorRef.current) {
-        processorRef.current.destroy();
+        await processorRef.current.destroy().catch(() => {});
         processorRef.current = null;
       }
-      if (perfTimerRef.current) {
-        clearInterval(perfTimerRef.current);
-        perfTimerRef.current = null;
-      }
+
+      if (!isVideoEnhanceSupported()) return;
+      await applyEnhancement(pub.track);
+    };
+
+    room.on(RoomEvent.LocalTrackPublished, handleLocalTrackPublished);
+    return () => { room.off(RoomEvent.LocalTrackPublished, handleLocalTrackPublished); };
+  }, [room, applyEnhancement]);
+
+  // Limpiar processor al desmontar (salir de la sala)
+  React.useEffect(() => {
+    return () => {
+      if (processorRef.current) { processorRef.current.destroy(); processorRef.current = null; }
+      if (perfTimerRef.current) { clearInterval(perfTimerRef.current); perfTimerRef.current = null; }
     };
   }, []);
-  // ── /Toggle mejora de imagen ─────────────────────────────────────────────
+  // ── /Mejora de imagen ─────────────────────────────────────────────────────
 
   React.useEffect(() => {
     if (e2eeEnabled) {
@@ -296,9 +324,7 @@ function VideoConferenceComponent(props: {
   }, [e2eeEnabled, room, e2eePassphrase]);
 
   const connectOptions = React.useMemo((): RoomConnectOptions => {
-    return {
-      autoSubscribe: true,
-    };
+    return { autoSubscribe: true };
   }, []);
 
   React.useEffect(() => {
@@ -314,33 +340,21 @@ function VideoConferenceComponent(props: {
           connectOptions,
         )
         .then(() => {
-          // ── iOS: NO auto-activar cámara/mic desde código ──────────────────
-          // En iOS, getUserMedia solo funciona desde un gesto directo del usuario.
-          // El gesto "Join Room" ya expiró cuando llegamos aquí (async + delay).
-          // → El usuario activa 📹 y 🎙️ tocando los botones del ControlBar,
-          //   que SÍ son gestos válidos y publican el track correctamente.
           const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-          if (isIOS) return; // iOS: esperar gesto del usuario en ControlBar
+          if (isIOS) return;
 
-          // ── Desktop / Android: auto-activar normalmente ────────────────────
           if (props.userChoices.videoEnabled) {
             room.localParticipant.setCameraEnabled(true).catch((error) => {
-              if (error?.name !== 'NotAllowedError' && error?.name !== 'NotFoundError') {
-                handleError(error);
-              }
+              if (error?.name !== 'NotAllowedError' && error?.name !== 'NotFoundError') handleError(error);
             });
           }
           if (props.userChoices.audioEnabled) {
             room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
-              if (error?.name !== 'NotAllowedError' && error?.name !== 'NotFoundError') {
-                handleError(error);
-              }
+              if (error?.name !== 'NotAllowedError' && error?.name !== 'NotFoundError') handleError(error);
             });
           }
         })
-        .catch((error) => {
-          handleError(error);
-        });
+        .catch(handleError);
     }
     return () => {
       room.off(RoomEvent.Disconnected, handleOnLeave);
@@ -351,7 +365,6 @@ function VideoConferenceComponent(props: {
 
   const lowPowerMode = useLowCPUOptimizer(room);
 
-  // Banner de hint para iOS — aparece 5s al entrar, recuerda tocar 📹🎙️
   const [showIOSHint, setShowIOSHint] = React.useState(() =>
     /iPhone|iPad|iPod/.test(navigator.userAgent)
   );
@@ -362,44 +375,33 @@ function VideoConferenceComponent(props: {
   }, [showIOSHint]);
 
   const router = useRouter();
-  // Al salir → página "Sesión finalizada", NO el formulario de crear sala
   const handleOnLeave = React.useCallback(() => router.push('/salir'), [router]);
   const handleError = React.useCallback((error: Error) => {
     console.error(error);
-    // Errores de permisos en iOS son normales — no mostrar alert intrusivo
     if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') return;
     alert(`Error inesperado: ${error.message}`);
   }, []);
   const handleEncryptionError = React.useCallback((error: Error) => {
     console.error(error);
-    alert(
-      `Encountered an unexpected encryption error, check the console logs for details: ${error.message}`,
-    );
+    alert(`Encountered an unexpected encryption error: ${error.message}`);
   }, []);
 
   React.useEffect(() => {
-    if (lowPowerMode) {
-      console.warn('Low power mode enabled');
-    }
+    if (lowPowerMode) console.warn('Low power mode enabled');
   }, [lowPowerMode]);
 
-  // ── Fix efecto espejo en compartir pantalla ──────────────────────────────
-  // selfBrowserSurface:'exclude' → Chrome oculta la pestaña actual de las opciones
-  // displaySurface:'window'      → sugiere compartir una ventana, no el monitor entero
-  // NOTA: iOS Safari no tiene getDisplayMedia — el guard evita crash en móvil
+  // ── Fix espejo en compartir pantalla ─────────────────────────────────────
   React.useEffect(() => {
-    if (!navigator.mediaDevices?.getDisplayMedia) return; // iOS / móvil → skip
+    if (!navigator.mediaDevices?.getDisplayMedia) return;
     const original = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getDisplayMedia = async (constraints?: DisplayMediaStreamOptions) => {
       const patched: DisplayMediaStreamOptions = {
         ...constraints,
-        // @ts-ignore — propiedades Chrome no en el tipo estándar aún
+        // @ts-ignore
         selfBrowserSurface: 'exclude',
         preferCurrentTab: false,
         video: {
-          ...(typeof constraints?.video === 'object' && constraints.video !== null
-            ? constraints.video
-            : {}),
+          ...(typeof constraints?.video === 'object' && constraints.video !== null ? constraints.video : {}),
           // @ts-ignore
           displaySurface: 'window',
           frameRate: { ideal: 30, max: 60 },
@@ -410,9 +412,7 @@ function VideoConferenceComponent(props: {
       };
       return original(patched);
     };
-    return () => {
-      navigator.mediaDevices.getDisplayMedia = original;
-    };
+    return () => { navigator.mediaDevices.getDisplayMedia = original; };
   }, []);
   // ── /Fix espejo ──────────────────────────────────────────────────────────
 
@@ -420,7 +420,7 @@ function VideoConferenceComponent(props: {
     <div className="lk-room-container">
       <RoomContext.Provider value={room}>
         <KeyboardShortcuts />
-        {/* Asistentes: ocultar "Compartir pantalla" via CSS — solo host lo ve */}
+        {/* Asistentes: ocultar compartir pantalla */}
         {!isHost && (
           <style>{`
             button[data-lk-source="screen_share"],
@@ -431,17 +431,22 @@ function VideoConferenceComponent(props: {
           chatMessageFormatter={formatChatMessageLinks}
           SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
         />
-        {/* Panel de moderación — SOLO visible para el anfitrión (host) */}
+
+        {/* Panel de moderación — SOLO host
+            Posición: bottom 80px, right 16px (botón circular 48px) */}
         {isHost && <ModeratorPanel roomName={props.connectionDetails.roomName} />}
 
-        {/* Botón mejora de imagen — SOLO host, SOLO Chrome/Edge (Breakout Box API) */}
+        {/* Botón mejora de imagen — SOLO host, SOLO Chrome/Edge
+            Posición: bottom 140px, right 16px
+            (encima del ModeratorPanel: 80 + 48 + 12px gap = 140)
+            Nunca se superpone con el panel de participantes */}
         {isHost && isVideoEnhanceSupported() && (
           <div
             style={{
               position: 'fixed',
-              bottom: '80px',
+              bottom: '140px',
               right: '16px',
-              zIndex: 9999,
+              zIndex: 9998, // un nivel por debajo del ModeratorPanel (9999)
             }}
           >
             <button
@@ -472,19 +477,13 @@ function VideoConferenceComponent(props: {
                 transition: 'all 0.18s ease',
                 backdropFilter: 'blur(8px)',
                 WebkitBackdropFilter: 'blur(8px)',
+                whiteSpace: 'nowrap',
               }}
             >
               <span style={{ fontSize: '14px' }}>✨</span>
               <span>{videoEnhanced ? 'Mejora activa' : 'Mejorar imagen'}</span>
               {videoEnhanced && enhanceMs !== null && (
-                <span
-                  style={{
-                    opacity: 0.65,
-                    fontSize: '10px',
-                    fontWeight: 400,
-                    marginLeft: '2px',
-                  }}
-                >
+                <span style={{ opacity: 0.65, fontSize: '10px', fontWeight: 400, marginLeft: '2px' }}>
                   {enhanceMs.toFixed(1)}ms
                 </span>
               )}
@@ -492,7 +491,7 @@ function VideoConferenceComponent(props: {
           </div>
         )}
 
-        {/* Banner iOS: recordatorio de activar cámara/mic manualmente */}
+        {/* Banner iOS */}
         {showIOSHint && (
           <div
             style={{
