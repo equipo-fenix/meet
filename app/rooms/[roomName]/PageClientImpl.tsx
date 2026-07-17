@@ -123,9 +123,6 @@ function VideoConferenceComponent(props: {
   const videoEnhancedRef = React.useRef(false);
   React.useEffect(() => { videoEnhancedRef.current = videoEnhanced; }, [videoEnhanced]);
 
-  // ── Mano levantada (solo participantes) ──────────────────────────────────
-  const [handRaised, setHandRaised] = React.useState(false);
-
   // ── Room ─────────────────────────────────────────────────────────────────
   const roomOptions = React.useMemo((): RoomOptions => {
     let videoCodec: VideoCodec | undefined = props.options.codec || 'h264';
@@ -370,7 +367,8 @@ function VideoConferenceComponent(props: {
         <KeyboardShortcuts />
 
         {/* ── Layout principal: hablante activo, galería, pantalla compartida ── */}
-        <FenixRoomLayout isHost={isHost} />
+        {/* micUnlocked: participantes ven el botón de mic solo si el host los invitó */}
+        <FenixRoomLayout isHost={isHost} micUnlocked={moderation.micUnlocked} />
 
         {/* ── Panel de moderación — solo host ── */}
         {isHost && (
@@ -445,31 +443,6 @@ function VideoConferenceComponent(props: {
             }}
           >
             <RecordingButton roomName={props.connectionDetails.roomName} />
-          </div>
-        )}
-
-        {/* ── Botón levantar mano — solo participantes
-            Posición: bottom 80px, izquierda ── */}
-        {!isHost && (
-          <div
-            style={{
-              position: 'fixed',
-              bottom: '80px',
-              left: '16px',
-              zIndex: 9998,
-            }}
-          >
-            <HandRaiseButton
-              raised={handRaised}
-              onRaise={async () => {
-                await moderation.actions.raiseHand();
-                setHandRaised(true);
-              }}
-              onLower={async () => {
-                await moderation.actions.lowerHand();
-                setHandRaised(false);
-              }}
-            />
           </div>
         )}
 
@@ -612,64 +585,6 @@ function RecordingButton({ roomName }: { roomName: string }) {
           <span>Iniciar grabación</span>
         </>
       )}
-    </button>
-  );
-}
-
-// ── HandRaiseButton ───────────────────────────────────────────────────────────
-
-function HandRaiseButton({
-  raised,
-  onRaise,
-  onLower,
-}: {
-  raised: boolean;
-  onRaise: () => Promise<void>;
-  onLower: () => Promise<void>;
-}) {
-  const [busy, setBusy] = React.useState(false);
-
-  const handleClick = async () => {
-    setBusy(true);
-    try {
-      if (raised) await onLower();
-      else await onRaise();
-    } catch (e) {
-      console.warn('[hand] error:', e);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <button
-      onClick={handleClick}
-      disabled={busy}
-      title={raised ? 'Bajar la mano' : 'Solicitar hablar al anfitrión'}
-      style={{
-        background: raised ? 'rgba(201,168,76,0.9)' : 'rgba(10,10,15,0.85)',
-        border: `1px solid ${raised ? 'rgba(201,168,76,0.7)' : 'rgba(255,255,255,0.18)'}`,
-        borderRadius: '10px',
-        padding: '8px 14px',
-        color: raised ? '#0a0a0f' : '#ffffff',
-        fontSize: '12px',
-        fontWeight: 700,
-        cursor: busy ? 'wait' : 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        boxShadow: raised
-          ? '0 2px 14px rgba(201,168,76,0.35)'
-          : '0 2px 12px rgba(0,0,0,0.45)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-        transition: 'all 0.18s ease',
-        whiteSpace: 'nowrap',
-        opacity: busy ? 0.7 : 1,
-      }}
-    >
-      <span style={{ fontSize: '14px' }}>✋</span>
-      <span>{raised ? 'Bajar mano' : 'Solicitar hablar'}</span>
     </button>
   );
 }
