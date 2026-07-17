@@ -1,12 +1,12 @@
 'use client';
 
 /**
- * FenixRoomLayout v3 — Vista profesional con overlay de miniaturas estilo Zoom
+ * FenixRoomLayout v4 — Modo sala libre
  *
- * Cambios respecto a v2:
- *   · micUnlocked prop — el micrófono en ControlBar solo aparece si el host
- *     o si el participante fue invitado a hablar y aceptó (flujo webinar)
- *   · Se eliminó la prop/lógica de HandRaiseButton (ya no vive aquí)
+ * Cambios respecto a v3:
+ *   · Todos los participantes pueden activar su micrófono libremente
+ *   · El host puede silenciar a individuos o a todos desde el ModeratorPanel
+ *   · Se eliminó el gate micUnlocked — el botón de mic siempre es visible
  */
 
 import React from 'react';
@@ -30,11 +30,6 @@ const SPEAKER_DEBOUNCE_MS = 1500;
 
 interface FenixRoomLayoutProps {
   isHost: boolean;
-  /**
-   * true cuando el participante fue invitado a hablar y aceptó.
-   * El host siempre tiene micUnlocked = true (se inicializa así en useRoomModeration).
-   */
-  micUnlocked?: boolean;
 }
 
 function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
@@ -43,7 +38,7 @@ function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
-export function FenixRoomLayout({ isHost, micUnlocked = false }: FenixRoomLayoutProps) {
+export function FenixRoomLayout({ isHost }: FenixRoomLayoutProps) {
   const [mode, setMode]         = React.useState<LayoutMode>('stage');
   const [chatOpen, setChatOpen] = React.useState(false);
   const [pinnedId, setPinnedId] = React.useState<string | null>(null);
@@ -360,9 +355,9 @@ export function FenixRoomLayout({ isHost, micUnlocked = false }: FenixRoomLayout
             <ControlBar
               variation="minimal"
               controls={{
-                // El micrófono está disponible solo si el host desbloqueó al participante
-                // (o si es el propio host). Los participantes no pueden activarse solos.
-                microphone: isHost || micUnlocked,
+                // Todos los participantes pueden activar su micrófono libremente.
+                // El host puede silenciarlos desde el ModeratorPanel.
+                microphone: true,
                 camera: true,
                 screenShare: isHost,
                 chat: false,
