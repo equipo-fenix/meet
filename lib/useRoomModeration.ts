@@ -247,26 +247,77 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
   const dismissInvite = React.useCallback(async (accepted: boolean) => {
     if (!pendingInvite) return;
     const me = room.localParticipant;
-    const type = pendingInvite === 'speak'
-      ? (accepted ? MSG.PARTICIPANT_ACCEPT_SPEAK : MSG.PARTICIPANT_DECLINE_SPEAK)
-      : (accepted ? MSG.PARTICIPANT_ACCEPT_CAMERA : MSG.PARTICIPANT_DECLINE_CAMERA);
-
-    await broadcast({ type, identity: me.identity, name: me.name || me.identity, ts: Date.now() });
+    const inviteType = pendingInvite; // capturar antes de limpiar estado
+    setPendingInvite(null);
 
     if (accepted) {
-      try {
-        if (pendingInvite === 'speak') {
-          // Desbloquear botón mic en ControlBar y activar el micrófono
-          setMicUnlocked(true);
-          await room.localParticipant.setMicrophoneEnabled(true);
-        } else {
-          await room.localParticipant.setCameraEnabled(true);
+      if (inviteType === 'speak') {
+        // ── CRÍTICO: llamar setMicrophoneEnabled ANTES de cualquier await ──────
+        // iOS Safari y Chrome mobile requieren que getUserMedia() se dispare
+        // dentro del scope del gesto del usuario (el tap en "Activar micrófono").
+        // Un `await broadcast()` previo rompería ese scope y el mic no se activaría.
+        // Disparamos la promesa primero (sin await) para capturar el gesto.
+        setMicUnlocked(true);
+        const micPromise = room.localParticipant.setMicrophoneEnabled(true);
+
+        // Broadcast concurrente — no bloquea la activación del mic
+        await broadcast({
+          type: MSG.PARTICIPANT_ACCEPT_SPEAK,
+          identity: me.identity,
+          name: me.name || me.identity,
+          ts: Date.now(),
+        });
+
+        // Ahora esperamos la promesa del mic y manejamos errores con UX visible
+        try {
+          await micPromise;
+        } catch (e: unknown) {
+          const err = e as Error;
+          if (err?.name === 'NotAllowedError') {
+            toast('Necesitas permitir el acceso al micrófono en tu navegador para poder hablar.', {
+              duration: 8000,
+              icon: '🎙️',
+              style: warnToast,
+            });
+          } else {
+            console.warn('[mod] error activating mic:', err);
+          }
         }
-      } catch (e) {
-        console.warn('[mod] error activating device after invite:', e);
+      } else {
+        // Cámara: mismo patrón — disparar antes de broadcast
+        const camPromise = room.localParticipant.setCameraEnabled(true);
+
+        await broadcast({
+          type: MSG.PARTICIPANT_ACCEPT_CAMERA,
+          identity: me.identity,
+          name: me.name || me.identity,
+          ts: Date.now(),
+        });
+
+        try {
+          await camPromise;
+        } catch (e: unknown) {
+          const err = e as Error;
+          if (err?.name === 'NotAllowedError') {
+            toast('Necesitas permitir el acceso a la cámara en tu navegador.', {
+              duration: 8000,
+              icon: '📷',
+              style: warnToast,
+            });
+          } else {
+            console.warn('[mod] error activating camera:', err);
+          }
+        }
       }
+    } else {
+      // Declined
+      await broadcast({
+        type: inviteType === 'speak' ? MSG.PARTICIPANT_DECLINE_SPEAK : MSG.PARTICIPANT_DECLINE_CAMERA,
+        identity: me.identity,
+        name: me.name || me.identity,
+        ts: Date.now(),
+      });
     }
-    setPendingInvite(null);
   }, [room, pendingInvite, broadcast]);
 
   return {
