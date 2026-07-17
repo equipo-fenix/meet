@@ -7,8 +7,13 @@
  *   · Contrast      — separación tonal micro-boost
  *   · Saturation    — vibrancy natural
  *
- * ~1–2 ms por frame 720p · sin CPU readback · VideoFrame nativo.
+ * ~1–3 ms por frame 720p · GPU blit sin CPU readback · VideoFrame nativo.
  * Compatible con LiveKit 2.x setProcessor() / stopProcessor() API.
+ *
+ * Compatibilidad macOS: usa canvas 2D como intermediario para VideoFrame
+ * (canvas WebGL2 → ctx2d.drawImage → canvas2d.transferToImageBitmap)
+ * porque el VideoFrame constructor rechaza ImageBitmaps IOSurface-backed
+ * directos de canvas WebGL2 en macOS Chrome.
  *
  * Defaults conservadores (similar a Zoom "Video Enhancement" baseline):
  *   sharpness 0.45 · brightness 0.04 · contrast 1.06 · saturation 1.08
@@ -116,6 +121,11 @@ export class VideoEnhanceProcessor {
     contrast: WebGLUniformLocation | null;
     sat:      WebGLUniformLocation | null;
   };
+  // Canvas 2D auxiliar para compatibilidad macOS con VideoFrame constructor.
+  // WebGL2 OffscreenCanvas produce ImageBitmaps IOSurface-backed que el
+  // constructor VideoFrame() rechaza en macOS. El blit GPU→2D canvas resuelve esto.
+  private canvas2d?: OffscreenCanvas;
+  private ctx2d?: OffscreenCanvasRenderingContext2D;
   private abort?: AbortController;
 
   constructor(cfg: VideoEnhanceConfig = {}) {
@@ -130,7 +140,7 @@ export class VideoEnhanceProcessor {
   async init(opts: { track: MediaStreamTrack }): Promise<void> {
     const { width = 1280, height = 720 } = opts.track.getSettings();
 
-    // ── WebGL ────────────────────────────────────────────────────────────────
+    // ── WebGL2 canvas (procesamiento GPU) ────────────────────────────────────
     this.canvas = new OffscreenCanvas(width, height);
     const gl = this.canvas.getContext('webgl2', {
       alpha: false, antialias: false, preserveDrawingBuffer: false,
@@ -181,9 +191,17 @@ export class VideoEnhanceProcessor {
     gl.uniform1f(this.uloc.contrast, this.cfg.contrast);
     gl.uniform1f(this.uloc.sat,      this.cfg.saturation);
 
+    // ── Canvas 2D auxiliar (macOS VideoFrame compatibility) ──────────────────
+    // Blit: WebGL2 canvas → ctx2d.drawImage → canvas2d.transferToImageBitmap
+    // Chrome realiza este blit como operación GPU (sin CPU readback).
+    // El ImageBitmap de canvas 2D SÍ es aceptado por el constructor VideoFrame
+    // en macOS, a diferencia del ImageBitmap directo de canvas WebGL2.
+    this.canvas2d = new OffscreenCanvas(width, height);
+    const ctx2d = this.canvas2d.getContext('2d') as OffscreenCanvasRenderingContext2D | null;
+    if (!ctx2d) throw new Error('[VideoEnhance] OffscreenCanvas 2D no disponible');
+    this.ctx2d = ctx2d;
+
     // ── Breakout Box (Insertable Streams) ────────────────────────────────────
-    // MediaStreamTrackProcessor y MediaStreamTrackGenerator son API Chrome 94+.
-    // Se accede vía cast tipado para evitar errores TypeScript sin @types instalados.
     const w = window as unknown as BreakoutBoxWindow;
     const reader = new w.MediaStreamTrackProcessor({ track: opts.track });
     const writer = new w.MediaStreamTrackGenerator({ kind: 'video' });
@@ -191,44 +209,55 @@ export class VideoEnhanceProcessor {
     this.abort = new AbortController();
     const { signal } = this.abort;
 
-    // Arrow function: 'this' es léxico → apunta a la instancia de VideoEnhanceProcessor
+    // Arrow function: 'this' es léxico → instancia de VideoEnhanceProcessor
     reader.readable
       .pipeThrough(
         new TransformStream<VideoFrame, VideoFrame>({
           transform: async (frame, ctrl) => {
             const t0  = performance.now();
-            const ts  = frame.timestamp;        // guardar ANTES de close
-            const dur = frame.duration ?? undefined;
+            const ts  = frame.timestamp;
+            // Construir VideoFrameInit sin pasar duration undefined/null
+            // (pasar duration undefined causa OperationError en Chrome macOS)
+            const frameInit: VideoFrameInit = { timestamp: ts };
+            if (typeof frame.duration === 'number') frameInit.duration = frame.duration;
+
             try {
               // createImageBitmap acepta VideoFrame directamente (Chrome 94+)
               const bmp = await createImageBitmap(frame as unknown as ImageBitmap);
               frame.close();
 
-              const { gl, tex, canvas } = this;
-              if (!gl || !tex || !canvas) {
-                // Passthrough sin procesamiento (ocurre si destroy() fue llamado)
-                ctrl.enqueue(new VideoFrame(bmp, { timestamp: ts, duration: dur }));
+              const { gl, tex, canvas, ctx2d, canvas2d } = this;
+              if (!gl || !tex || !canvas || !ctx2d || !canvas2d) {
+                // Passthrough: processor fue destruido entre frames
+                const passFrame = new VideoFrame(bmp, frameInit);
                 bmp.close();
+                ctrl.enqueue(passFrame);
                 return;
               }
 
-              // Upload frame a textura WebGL (sin readback — GPU only)
+              // Upload frame a textura WebGL (GPU only — sin CPU readback)
               gl.bindTexture(gl.TEXTURE_2D, tex);
               gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
               bmp.close();
 
               // Renderizar quad con shader de mejora
               gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-              gl.flush(); // asegurar flush antes de transferToImageBitmap
+              gl.flush();
 
-              // Captura del resultado: transferencia zero-copy desde buffer WebGL
-              const outBmp = canvas.transferToImageBitmap();
-              ctrl.enqueue(new VideoFrame(outBmp, { timestamp: ts, duration: dur }));
+              // ── Blit GPU→GPU: WebGL2 canvas → canvas 2D ──────────────────
+              // Chrome realiza drawImage entre canvases GPU sin CPU readback.
+              // El ImageBitmap resultante de canvas 2D es compatible con
+              // VideoFrame constructor en macOS (fix para IOSurface-backed bitmaps).
+              ctx2d.drawImage(canvas, 0, 0);
+              const outBmp = canvas2d.transferToImageBitmap();
+              ctrl.enqueue(new VideoFrame(outBmp, frameInit));
               outBmp.close();
 
               this.lastFrameMs = performance.now() - t0;
             } catch (err) {
-              // Nunca descartar frames — passthrough en caso de error
+              // Safety net: loguear y descartar el frame con error.
+              // El frame ya pudo haber sido close()ado — no re-enqueue.
+              // La pérdida de un frame individual a 30fps no es perceptible.
               console.warn('[VideoEnhance] frame skip:', err);
             }
           },
@@ -248,12 +277,14 @@ export class VideoEnhanceProcessor {
     this.gl      = undefined;
     this.canvas  = undefined;
     this.tex     = undefined;
+    this.ctx2d   = undefined;
+    this.canvas2d = undefined;
     this.processedTrack = undefined;
   }
 }
 
 /**
- * Verifica si el entorno soporta Breakout Box + WebGL2.
+ * Verifica si el entorno soporta Breakout Box + WebGL2 + OffscreenCanvas.
  * Requerido: Chrome 94+ / Edge 94+. Safari: no soportado.
  */
 export function isVideoEnhanceSupported(): boolean {
