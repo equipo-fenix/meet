@@ -367,8 +367,7 @@ function VideoConferenceComponent(props: {
         <KeyboardShortcuts />
 
         {/* ── Layout principal: hablante activo, galería, pantalla compartida ── */}
-        {/* micUnlocked: participantes ven el botón de mic solo si el host los invitó */}
-        <FenixRoomLayout isHost={isHost} micUnlocked={moderation.micUnlocked} />
+        <FenixRoomLayout isHost={isHost} />
 
         {/* ── Panel de moderación — solo host ── */}
         {isHost && (
