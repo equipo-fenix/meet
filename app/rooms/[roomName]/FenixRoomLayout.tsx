@@ -1,15 +1,12 @@
 'use client';
 
 /**
- * FenixRoomLayout v2 — Vista profesional con overlay de miniaturas estilo Zoom
+ * FenixRoomLayout v3 — Vista profesional con overlay de miniaturas estilo Zoom
  *
- * Cambios respecto a v1:
- *   · Miniaturas → overlay absolute top-right (ya no bottom strip)
- *   · Expand/collapse propio con [−] / [+ N]
- *   · Fallback de escenario principal → HOST (no localParticipant)
- *     Todos los participantes ven al host por defecto, igual que Zoom
- *   · Barra superior simplificada: Galería / Pin / Chat
- *   · Gallery mode: sin cambios
+ * Cambios respecto a v2:
+ *   · micUnlocked prop — el micrófono en ControlBar solo aparece si el host
+ *     o si el participante fue invitado a hablar y aceptó (flujo webinar)
+ *   · Se eliminó la prop/lógica de HandRaiseButton (ya no vive aquí)
  */
 
 import React from 'react';
@@ -33,6 +30,11 @@ const SPEAKER_DEBOUNCE_MS = 1500;
 
 interface FenixRoomLayoutProps {
   isHost: boolean;
+  /**
+   * true cuando el participante fue invitado a hablar y aceptó.
+   * El host siempre tiene micUnlocked = true (se inicializa así en useRoomModeration).
+   */
+  micUnlocked?: boolean;
 }
 
 function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
@@ -41,7 +43,7 @@ function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
-export function FenixRoomLayout({ isHost }: FenixRoomLayoutProps) {
+export function FenixRoomLayout({ isHost, micUnlocked = false }: FenixRoomLayoutProps) {
   const [mode, setMode]         = React.useState<LayoutMode>('stage');
   const [chatOpen, setChatOpen] = React.useState(false);
   const [pinnedId, setPinnedId] = React.useState<string | null>(null);
@@ -358,7 +360,9 @@ export function FenixRoomLayout({ isHost }: FenixRoomLayoutProps) {
             <ControlBar
               variation="minimal"
               controls={{
-                microphone: true,
+                // El micrófono está disponible solo si el host desbloqueó al participante
+                // (o si es el propio host). Los participantes no pueden activarse solos.
+                microphone: isHost || micUnlocked,
                 camera: true,
                 screenShare: isHost,
                 chat: false,
