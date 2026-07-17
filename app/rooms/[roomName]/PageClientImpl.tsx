@@ -5,17 +5,15 @@ import { decodePassphrase } from '@/lib/client-utils';
 import { DebugMode } from '@/lib/Debug';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
-import { SettingsMenu } from '@/lib/SettingsMenu';
 import { ConnectionDetails } from '@/lib/types';
 import {
-  formatChatMessageLinks,
   LocalUserChoices,
   PreJoin,
   RoomContext,
-  VideoConference,
   useIsRecording,
 } from '@livekit/components-react';
 import { ModeratorPanel } from './ModeratorPanel';
+import { FenixRoomLayout } from './FenixRoomLayout';
 import {
   ExternalE2EEKeyProvider,
   LocalTrackPublication,
@@ -39,7 +37,6 @@ import toast from 'react-hot-toast';
 
 const CONN_DETAILS_ENDPOINT =
   process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT ?? '/api/connection-details';
-const SHOW_SETTINGS_MENU = process.env.NEXT_PUBLIC_SHOW_SETTINGS_MENU == 'true';
 
 // ── PageClientImpl ────────────────────────────────────────────────────────────
 
@@ -372,18 +369,8 @@ function VideoConferenceComponent(props: {
       <RoomContext.Provider value={room}>
         <KeyboardShortcuts />
 
-        {/* Ocultar compartir pantalla para asistentes */}
-        {!isHost && (
-          <style>{`
-            button[data-lk-source="screen_share"],
-            button[data-lk-source="screen_share_audio"] { display: none !important; }
-          `}</style>
-        )}
-
-        <VideoConference
-          chatMessageFormatter={formatChatMessageLinks}
-          SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
-        />
+        {/* ── Layout principal: hablante activo, galería, pantalla compartida ── */}
+        <FenixRoomLayout isHost={isHost} />
 
         {/* ── Panel de moderación — solo host ── */}
         {isHost && (
