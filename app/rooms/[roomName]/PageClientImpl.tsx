@@ -216,17 +216,21 @@ function VideoConferenceComponent(props: {
         alert('Tu navegador no soporta mejora de imagen (requiere Chrome 94+ o Edge 94+)');
         return;
       }
-      await applyEnhancement(camPub.track);
+      await applyEnhancement(camPub);
     }
   }, [room, videoEnhanced]);
 
-  // Función auxiliar: aplica el processor a un track específico.
+  // Función auxiliar: aplica el processor al track de cámara activo.
+  // Acepta una publicación opcional; si no se pasa, busca la cámara activa.
   // Usada por el toggle Y por el re-apply automático en camera recycle.
-  const applyEnhancement = React.useCallback(async (track: { setProcessor: (p: unknown) => Promise<void> }) => {
+  const applyEnhancement = React.useCallback(async (pub?: LocalTrackPublication) => {
+    const camPub = pub ?? Array.from(room.localParticipant.videoTrackPublications.values())
+      .find(p => p.source === 'camera' && p.track);
+    if (!camPub?.track) return;
     const proc = new VideoEnhanceProcessor();
     try {
       // @ts-ignore — VideoEnhanceProcessor implementa TrackProcessor<video>
-      await track.setProcessor(proc);
+      await camPub.track.setProcessor(proc);
       processorRef.current = proc;
 
       // Limpiar timer anterior si existía
@@ -285,7 +289,7 @@ function VideoConferenceComponent(props: {
       }
 
       if (!isVideoEnhanceSupported()) return;
-      await applyEnhancement(pub.track);
+      await applyEnhancement(pub);
     };
 
     room.on(RoomEvent.LocalTrackPublished, handleLocalTrackPublished);
