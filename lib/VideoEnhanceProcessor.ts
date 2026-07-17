@@ -82,6 +82,18 @@ function compileShader(gl: WebGL2RenderingContext, type: number, src: string): W
   return s;
 }
 
+// ── Breakout Box type shims (Chrome 94+ — no @types definition in this project) ─
+interface TrackProcessorInit {
+  track: MediaStreamTrack;
+}
+interface TrackGeneratorInit {
+  kind: 'video' | 'audio';
+}
+interface BreakoutBoxWindow {
+  MediaStreamTrackProcessor: new (opts: TrackProcessorInit) => { readable: ReadableStream<VideoFrame> };
+  MediaStreamTrackGenerator: new (opts: TrackGeneratorInit) => { writable: WritableStream<VideoFrame> } & MediaStreamTrack;
+}
+
 // ── Processor ─────────────────────────────────────────────────────────────────
 
 export class VideoEnhanceProcessor {
@@ -115,7 +127,6 @@ export class VideoEnhanceProcessor {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async init(opts: { track: MediaStreamTrack }): Promise<void> {
     const { width = 1280, height = 720 } = opts.track.getSettings();
 
@@ -171,18 +182,16 @@ export class VideoEnhanceProcessor {
     gl.uniform1f(this.uloc.sat,      this.cfg.saturation);
 
     // ── Breakout Box (Insertable Streams) ────────────────────────────────────
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any;
-    const reader = new w.MediaStreamTrackProcessor({ track: opts.track }) as
-      { readable: ReadableStream<VideoFrame> };
-    const writer = new w.MediaStreamTrackGenerator({ kind: 'video' }) as
-      { writable: WritableStream<VideoFrame> } & MediaStreamTrack;
+    // MediaStreamTrackProcessor y MediaStreamTrackGenerator son API Chrome 94+.
+    // Se accede vía cast tipado para evitar errores TypeScript sin @types instalados.
+    const w = window as unknown as BreakoutBoxWindow;
+    const reader = new w.MediaStreamTrackProcessor({ track: opts.track });
+    const writer = new w.MediaStreamTrackGenerator({ kind: 'video' });
 
     this.abort = new AbortController();
     const { signal } = this.abort;
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const self = this;
 
+    // Arrow function: 'this' es léxico → apunta a la instancia de VideoEnhanceProcessor
     reader.readable
       .pipeThrough(
         new TransformStream<VideoFrame, VideoFrame>({
@@ -195,9 +204,9 @@ export class VideoEnhanceProcessor {
               const bmp = await createImageBitmap(frame as unknown as ImageBitmap);
               frame.close();
 
-              const { gl, tex, canvas } = self;
+              const { gl, tex, canvas } = this;
               if (!gl || !tex || !canvas) {
-                // Passthrough sin procesamiento
+                // Passthrough sin procesamiento (ocurre si destroy() fue llamado)
                 ctrl.enqueue(new VideoFrame(bmp, { timestamp: ts, duration: dur }));
                 bmp.close();
                 return;
@@ -217,7 +226,7 @@ export class VideoEnhanceProcessor {
               ctrl.enqueue(new VideoFrame(outBmp, { timestamp: ts, duration: dur }));
               outBmp.close();
 
-              self.lastFrameMs = performance.now() - t0;
+              this.lastFrameMs = performance.now() - t0;
             } catch (err) {
               // Nunca descartar frames — passthrough en caso de error
               console.warn('[VideoEnhance] frame skip:', err);
