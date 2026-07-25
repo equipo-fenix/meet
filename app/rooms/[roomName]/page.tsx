@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { ClientOnlyRoom } from './ClientOnlyRoom';
 import { isVideoCodec } from '@/lib/types';
+import { parseIntroRef } from '@/lib/vimeoIntro';
 
 export default async function Page({
   params,
@@ -20,6 +21,16 @@ export default async function Page({
     cam?: string;
     // Pase firmado por APEX. Es lo único que concede rol de anfitrión.
     pass?: string;
+    // Cortinilla de apertura. `intro` es la referencia del video en Vimeo
+    // (`id` o `id:hash`) — nunca una URL, para que nadie de fuera pueda
+    // decidir qué se proyecta en el escenario de una clase.
+    intro?: string;
+    /** Epoch en segundos del momento en que la cortinilla empezó a correr. */
+    introAt?: string;
+    /** Duración de la cortinilla, en segundos. */
+    introSec?: string;
+    /** `1` en las sesiones de la Academia: se graban solas. */
+    rec?: string;
   }>;
 }) {
   const _params = await params;
@@ -34,8 +45,20 @@ export default async function Page({
   // mientras el servidor responde. Quien decide es el pase.
   const role = _searchParams.role === 'host' ? 'host' : 'attendee';
 
+  // La cortinilla solo existe si las tres piezas están y son coherentes. Con
+  // una sola mal escrita, la sala abre como siempre: sin intro, sin error.
+  const introRef = parseIntroRef(_searchParams.intro);
+  const introAt = Number(_searchParams.introAt);
+  const introSec = Number(_searchParams.introSec);
+  const intro =
+    introRef && Number.isFinite(introAt) && introAt > 0 && Number.isFinite(introSec) && introSec > 0
+      ? { ref: introRef, startedAtMs: introAt * 1000, durationSec: introSec }
+      : null;
+
   return (
     <ClientOnlyRoom
+      intro={intro}
+      autoRecord={_searchParams.rec === '1'}
       roomName={_params.roomName}
       region={_searchParams.region}
       hq={hq}

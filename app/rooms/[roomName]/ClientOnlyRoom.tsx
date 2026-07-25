@@ -15,8 +15,11 @@
 import * as React from 'react';
 import dynamic from 'next/dynamic';
 import type { VideoCodec } from 'livekit-client';
+import type { IntroConfig } from './FenixRoomLayout';
 
 type Props = {
+  intro?: IntroConfig | null;
+  autoRecord?: boolean;
   roomName: string;
   region?: string;
   hq: boolean;

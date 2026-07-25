@@ -6,6 +6,7 @@
  *   muteAll           — silencia todos los micrófonos de la sala
  *   disableCamera     — silencia (mutes) la cámara de un participante específico
  *   disableAllCameras — silencia todas las cámaras de la sala
+ *   endSession        — termina la sesión para todos y cierra la grabación
  *
  * Nota: LiveKit no permite apagar forzosamente el dispositivo en el cliente —
  * solo puede silenciar la pista publicada a nivel servidor. El participante
@@ -17,7 +18,7 @@
  * era cuestión de mandar un POST.
  */
 
-import { RoomServiceClient } from 'livekit-server-sdk';
+import { EgressClient, RoomServiceClient } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyRoomPass, roomPassEnforced } from '@/lib/roomPass';
 
@@ -25,10 +26,15 @@ const API_KEY = process.env.LIVEKIT_API_KEY!;
 const API_SECRET = process.env.LIVEKIT_API_SECRET!;
 const LIVEKIT_URL = process.env.LIVEKIT_URL!;
 
-function getServiceClient(): RoomServiceClient {
+/** LIVEKIT_URL viene en `wss://`; la API de administración se habla por HTTPS. */
+function httpOrigin(): string {
   const url = new URL(LIVEKIT_URL);
   url.protocol = 'https:';
-  return new RoomServiceClient(url.origin, API_KEY, API_SECRET);
+  return url.origin;
+}
+
+function getServiceClient(): RoomServiceClient {
+  return new RoomServiceClient(httpOrigin(), API_KEY, API_SECRET);
 }
 
 interface RequestBody {
@@ -107,6 +113,51 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           ),
         );
         return new NextResponse(null, { status: 200 });
+      }
+
+      case 'endSession': {
+        // Terminar una sesión es una sola cosa vista desde fuera y dos por
+        // dentro, y el orden importa: primero se cierra la grabación, después
+        // se vacía la sala. Al revés, el egress se queda grabando una sala sin
+        // nadie y el archivo termina con minutos de negro al final.
+        //
+        // Los dos pasos se intentan pase lo que pase. Si la grabación falla al
+        // cerrarse, la sala se vacía igual — que el anfitrión no pueda terminar
+        // su clase porque un egress se atascó sería peor que un archivo mal
+        // cerrado, que además se puede arreglar después.
+        const problemas: string[] = [];
+
+        try {
+          const egress = new EgressClient(httpOrigin(), API_KEY, API_SECRET);
+          const activas = (await egress.listEgress({ roomName })).filter((info) => info.status < 2);
+          await Promise.all(
+            activas.map((info) =>
+              egress.stopEgress(info.egressId).catch((e) => {
+                problemas.push(`egress ${info.egressId}: ${e?.message ?? e}`);
+              }),
+            ),
+          );
+        } catch (e) {
+          problemas.push(`grabación: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        // Borrar la sala desconecta a todo el mundo a la vez. No hay que
+        // recorrer participantes ni confiar en que cada cliente se entere:
+        // el servidor los suelta y cada uno cae en la pantalla de salida.
+        try {
+          await svc.deleteRoom(roomName);
+        } catch (e) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: `No se pudo cerrar la sala: ${e instanceof Error ? e.message : String(e)}`,
+              problemas,
+            },
+            { status: 500 },
+          );
+        }
+
+        return NextResponse.json({ ok: true, problemas });
       }
 
       default:
