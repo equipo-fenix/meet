@@ -3,6 +3,9 @@ on:
   push:
     branches: [ main ]
   pull_request:
+  # Poder lanzarlo a mano: cuando haya que comprobar que el CI sigue vivo
+  # sin inventarse un commit para ello.
+  workflow_dispatch:
 
 permissions:
   contents: read
