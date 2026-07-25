@@ -1,12 +1,23 @@
 'use client';
 
 /**
- * FenixRoomLayout v4 — Modo sala libre
+ * FenixRoomLayout v5 — Con la forma de Zoom
  *
- * Cambios respecto a v3:
- *   · Todos los participantes pueden activar su micrófono libremente
- *   · El host puede silenciar a individuos o a todos desde el ModeratorPanel
- *   · Se eliminó el gate micUnlocked — el botón de mic siempre es visible
+ * Lo de antes funcionaba pero había que aprenderlo: una barra de cuatro iconos
+ * sin nombre, el chat escondido tras un botón arriba, la lista de participantes
+ * en una burbuja flotante que solo veía el anfitrión, y encima de todo eso tres
+ * botones redondos apilados en la esquina tapando el vídeo.
+ *
+ * Ahora la sala tiene la gramática que la gente ya trae aprendida:
+ *   · una sola barra abajo, con cada icono nombrado
+ *   · chat y participantes como paneles del costado, que estrechan el vídeo
+ *     en vez de taparlo, y solo uno abierto a la vez
+ *   · reacciones que suben por la pantalla y se apagan solas
+ *   · cuadros redondeados, con el nombre y el micro abajo a la izquierda
+ *
+ * Nada de lo que ya funcionaba cambió de comportamiento: el escenario sigue
+ * eligiendo pantalla → pin → hablante → anfitrión, la cortinilla sigue mandando
+ * mientras dure, y el botón rojo del anfitrión sigue cerrando la sala entera.
  */
 
 import React from 'react';
@@ -14,8 +25,9 @@ import {
   useTracks,
   useParticipants,
   useSpeakingParticipants,
+  useChat,
+  useRoomContext,
   ParticipantTile,
-  ControlBar,
   Chat,
   RoomAudioRenderer,
   formatChatMessageLinks,
@@ -24,11 +36,18 @@ import {
 import { Track } from 'livekit-client';
 import { IntroStage } from './IntroStage';
 import { EndSessionButton } from './EndSessionButton';
+import { ControlDock, HostTool } from './ControlDock';
+import { ParticipantsPanel } from './ParticipantsPanel';
+import { PanelShell } from './PanelShell';
+import { ReactionsOverlay } from './ReactionsOverlay';
+import { useReactions } from '@/lib/useReactions';
+import type { ModerationState } from '@/lib/useRoomModeration';
 import type { IntroRef } from '@/lib/vimeoIntro';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
 type LayoutMode = 'stage' | 'gallery';
+type Panel = 'participantes' | 'chat' | null;
 const SPEAKER_DEBOUNCE_MS = 1500;
 
 export interface IntroConfig {
@@ -44,6 +63,10 @@ interface FenixRoomLayoutProps {
   /** Necesarios para que el anfitrión pueda cerrar la sala desde la barra. */
   roomName: string;
   pass: string | null;
+  /** Manos levantadas, silencios, invitaciones. */
+  moderation: ModerationState;
+  /** Grabación, mejora de imagen… lo que va dentro del menú "Más". */
+  hostTools?: HostTool[];
 }
 
 function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
@@ -52,11 +75,21 @@ function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
-export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayoutProps) {
+export function FenixRoomLayout({
+  isHost,
+  intro,
+  roomName,
+  pass,
+  moderation,
+  hostTools = [],
+}: FenixRoomLayoutProps) {
   const [mode, setMode] = React.useState<LayoutMode>('stage');
-  const [chatOpen, setChatOpen] = React.useState(false);
+  const [panel, setPanel] = React.useState<Panel>(null);
   const [pinnedId, setPinnedId] = React.useState<string | null>(null);
-  const [mainIdentity, setMainIdentity] = React.useState<string | null>(null);
+  const [manoLevantada, setManoLevantada] = React.useState(false);
+
+  const room = useRoomContext();
+  const reacciones = useReactions(room);
 
   // ── Intro ─────────────────────────────────────────────────────────────────
   // Solo cuenta si todavía le queda tiempo. Quien entre cuando la cortinilla
@@ -84,6 +117,17 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
 
   const screenRefs = allTrackRefs.filter((ref) => ref.source === Track.Source.ScreenShare);
   const cameraRefs = allTrackRefs.filter((ref) => ref.source === Track.Source.Camera);
+
+  // ── Chat sin leer ─────────────────────────────────────────────────────────
+  // El contador solo tiene sentido si el panel está cerrado: mientras está
+  // abierto, todo lo que llega ya se está leyendo.
+  const { chatMessages } = useChat();
+  const [vistoHasta, setVistoHasta] = React.useState<number>(() => Date.now());
+  React.useEffect(() => {
+    if (panel === 'chat') setVistoHasta(Date.now());
+  }, [panel, chatMessages.length]);
+  const sinLeer =
+    panel === 'chat' ? 0 : chatMessages.filter((m) => m.timestamp > vistoHasta).length;
 
   // ── Detectar host desde metadata JWT ─────────────────────────────────────
   const hostIdentity = React.useMemo(() => {
@@ -146,10 +190,6 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
     if (screenRefs.length > 0 && mode !== 'stage') setMode('stage');
   }, [screenRefs.length]);
 
-  React.useEffect(() => {
-    setMainIdentity(mainTrackRef ? trackIdentity(mainTrackRef) : null);
-  }, [mainTrackRef]);
-
   // Limpiar pin si el participante sale
   React.useEffect(() => {
     if (!pinnedId) return;
@@ -210,6 +250,29 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
     [isHost],
   );
 
+  // ── Mano levantada ────────────────────────────────────────────────────────
+  const alternarMano = React.useCallback(() => {
+    setManoLevantada((antes) => {
+      void (antes ? moderation.actions.lowerHand() : moderation.actions.raiseHand());
+      return !antes;
+    });
+  }, [moderation]);
+
+  // Cuando el anfitrión da la palabra, la mano se baja sola: dejarla arriba
+  // haría que el alumno tuviera que acordarse de bajarla él.
+  React.useEffect(() => {
+    if (moderation.pendingInvite === 'speak') setManoLevantada(false);
+  }, [moderation.pendingInvite]);
+
+  const manosIds = React.useMemo(
+    () => new Set(moderation.raisedHands.map((h) => h.identity)),
+    [moderation.raisedHands],
+  );
+
+  const alternarPanel = React.useCallback((p: Exclude<Panel, null>) => {
+    setPanel((actual) => (actual === p ? null : p));
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
@@ -224,6 +287,7 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
       }}
     >
       <RoomAudioRenderer />
+      <EstilosDeSala />
 
       {/* ── Barra superior ── */}
       <div
@@ -233,7 +297,7 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
           alignItems: 'center',
           justifyContent: 'center',
           gap: '6px',
-          padding: '8px 12px',
+          padding: '7px 12px',
           background: 'rgba(10,10,15,0.9)',
           borderBottom: '1px solid rgba(255,255,255,0.07)',
           zIndex: 100,
@@ -276,13 +340,6 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
             🖥 Pantalla compartida
           </span>
         )}
-
-        <LayoutToggleButton
-          label={chatOpen ? '✕ Chat' : '💬 Chat'}
-          title={chatOpen ? 'Cerrar chat' : 'Abrir chat'}
-          onClick={() => setChatOpen((v) => !v)}
-          active={chatOpen}
-        />
       </div>
 
       {/* ── Área principal ── */}
@@ -290,6 +347,7 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
         <div
           style={{
             flex: 1,
+            minWidth: 0,
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
@@ -362,8 +420,13 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
                   pinnedId={pinnedId}
                   isHost={isHost}
                   onPin={handlePinToggle}
+                  reacciones={reacciones.porParticipante}
+                  manos={manosIds}
                 />
               )}
+
+              {/* Los emojis suben por encima del vídeo, sin robarle los clics */}
+              <ReactionsOverlay reacciones={reacciones.volando} />
             </div>
           ) : (
             /* ── MODO GALERÍA ── */
@@ -371,17 +434,17 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
               style={{
                 flex: 1,
                 overflow: 'auto',
-                padding: '8px',
+                padding: '10px',
                 display: 'grid',
                 gridTemplateColumns: `repeat(${galleryCols}, 1fr)`,
-                gap: '6px',
+                gap: '8px',
                 alignContent: 'start',
+                position: 'relative',
               }}
             >
               {cameraRefs.map((ref) => {
                 const id = trackIdentity(ref);
                 const isPinned = pinnedId === id;
-                const isSpeaking = debouncedSpeakerId === id;
                 return (
                   <div
                     key={`${id}-${ref.source}`}
@@ -396,13 +459,9 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
                     style={{
                       position: 'relative',
                       aspectRatio: '16/9',
-                      borderRadius: '10px',
+                      borderRadius: '12px',
                       overflow: 'hidden',
-                      border: isSpeaking
-                        ? '2px solid #C9A84C'
-                        : isPinned
-                          ? '2px solid #60a5fa'
-                          : '2px solid transparent',
+                      border: isPinned ? '2px solid #60a5fa' : '2px solid transparent',
                       cursor: isHost ? 'pointer' : 'default',
                     }}
                   >
@@ -411,21 +470,12 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
                       disableSpeakingIndicator={false}
                       style={{ width: '100%', height: '100%' }}
                     />
-                    {isPinned && (
-                      <span
-                        style={{
-                          position: 'absolute',
-                          top: '6px',
-                          right: '6px',
-                          fontSize: '12px',
-                          background: 'rgba(96,165,250,0.85)',
-                          borderRadius: '4px',
-                          padding: '1px 5px',
-                        }}
-                      >
-                        📌
-                      </span>
-                    )}
+                    <Distintivos
+                      reaccion={reacciones.porParticipante[id]}
+                      mano={manosIds.has(id)}
+                      pin={isPinned}
+                      grande
+                    />
                   </div>
                 );
               })}
@@ -436,7 +486,7 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
                   style={{
                     position: 'relative',
                     aspectRatio: '16/9',
-                    borderRadius: '10px',
+                    borderRadius: '12px',
                     overflow: 'hidden',
                     border: '2px solid #60a5fa',
                     gridColumn: galleryCols > 1 ? 'span 2' : 'span 1',
@@ -464,112 +514,90 @@ export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayo
                   </span>
                 </div>
               ))}
+
+              <ReactionsOverlay reacciones={reacciones.volando} />
             </div>
           )}
 
-          {/* ── ControlBar ── */}
-          <div
-            style={{
-              flexShrink: 0,
-              borderTop: '1px solid rgba(255,255,255,0.07)',
-              background: 'rgba(10,10,15,0.95)',
-            }}
-          >
-            {/* Para el alumno el botón rojo es el de LiveKit y hace lo que
-                dice: se va él. Para el anfitrión lo cambiamos por el nuestro
-                —mismo sitio, mismo color— porque cuando el anfitrión se va, la
-                sesión se acabó para todos. */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                flexWrap: 'wrap',
-              }}
-            >
-              <ControlBar
-                variation="minimal"
-                controls={{
-                  // Todos los participantes pueden activar su micrófono libremente.
-                  // El host puede silenciarlos desde el ModeratorPanel.
-                  microphone: true,
-                  camera: true,
-                  screenShare: isHost,
-                  chat: false,
-                  leave: !isHost,
-                }}
-              />
-              {isHost && <EndSessionButton roomName={roomName} pass={pass} />}
-            </div>
-          </div>
+          {/* ── La barra de abajo ── */}
+          <ControlDock
+            isHost={isHost}
+            totalParticipantes={participants.length}
+            manosLevantadas={isHost ? moderation.raisedHands.length : 0}
+            sinLeer={sinLeer}
+            panelAbierto={panel}
+            onTogglePanel={alternarPanel}
+            onReaccion={reacciones.enviar}
+            manoLevantada={manoLevantada}
+            onToggleMano={alternarMano}
+            herramientas={hostTools}
+            botonSalir={<EndSessionButton roomName={roomName} pass={pass} />}
+          />
         </div>
 
-        {/* ── Chat sidebar ── */}
-        {chatOpen && (
-          <div
-            style={{
-              width: '320px',
-              flexShrink: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              borderLeft: '1px solid rgba(255,255,255,0.08)',
-              background: 'rgba(12,12,20,0.98)',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                padding: '10px 14px',
-                borderBottom: '1px solid rgba(255,255,255,0.07)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexShrink: 0,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  color: '#C9A84C',
-                  letterSpacing: '0.12em',
-                  textTransform: 'uppercase',
-                }}
-              >
-                Chat
-              </span>
-              <button
-                onClick={() => setChatOpen(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'rgba(255,255,255,0.5)',
-                  cursor: 'pointer',
-                  fontSize: '16px',
-                  padding: '2px 6px',
-                  lineHeight: 1,
-                }}
-              >
-                ✕
-              </button>
-            </div>
-            <div style={{ flex: 1, overflow: 'hidden' }}>
+        {/* ── Paneles del costado ── */}
+        {panel === 'participantes' && (
+          <ParticipantsPanel
+            roomName={roomName}
+            moderation={moderation}
+            isHost={isHost}
+            reacciones={reacciones.porParticipante}
+            onClose={() => setPanel(null)}
+          />
+        )}
+
+        {panel === 'chat' && (
+          <PanelShell titulo="Chat" onClose={() => setPanel(null)}>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
               <Chat messageFormatter={formatChatMessageLinks} />
             </div>
-          </div>
+          </PanelShell>
         )}
       </div>
-
-      {/* ── Mobile responsive ── */}
-      <style>{`
-        @media (max-width: 640px) {
-          .fenix-thumb-overlay { width: 120px !important; }
-          .fenix-thumb-tile    { width: 120px !important; height: 68px !important; }
-        }
-      `}</style>
     </div>
   );
+}
+
+// ── Distintivos sobre un cuadro ───────────────────────────────────────────────
+
+function Distintivos({
+  reaccion,
+  mano,
+  pin,
+  grande,
+}: {
+  reaccion?: string;
+  mano?: boolean;
+  pin?: boolean;
+  grande?: boolean;
+}) {
+  if (!reaccion && !mano && !pin) return null;
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: grande ? '8px' : '5px',
+        right: grande ? '8px' : '5px',
+        display: 'flex',
+        gap: '4px',
+        pointerEvents: 'none',
+      }}
+    >
+      {mano && <span style={burbuja(grande)}>✋</span>}
+      {reaccion && <span style={burbuja(grande)}>{reaccion}</span>}
+      {pin && <span style={burbuja(grande)}>📌</span>}
+    </div>
+  );
+}
+
+function burbuja(grande?: boolean): React.CSSProperties {
+  return {
+    fontSize: grande ? '15px' : '12px',
+    lineHeight: 1,
+    background: 'rgba(0,0,0,0.6)',
+    borderRadius: '8px',
+    padding: grande ? '4px 6px' : '3px 5px',
+  };
 }
 
 // ── ThumbnailOverlay — top-right, estilo Zoom ─────────────────────────────────
@@ -579,9 +607,18 @@ interface ThumbOverlayProps {
   pinnedId: string | null;
   isHost: boolean;
   onPin: (identity: string) => void;
+  reacciones: Record<string, string>;
+  manos: Set<string>;
 }
 
-function ThumbnailOverlay({ trackRefs, pinnedId, isHost, onPin }: ThumbOverlayProps) {
+function ThumbnailOverlay({
+  trackRefs,
+  pinnedId,
+  isHost,
+  onPin,
+  reacciones,
+  manos,
+}: ThumbOverlayProps) {
   const [expanded, setExpanded] = React.useState(true);
 
   if (trackRefs.length === 0) return null;
@@ -598,7 +635,7 @@ function ThumbnailOverlay({ trackRefs, pinnedId, isHost, onPin }: ThumbOverlayPr
         flexDirection: 'column',
         alignItems: 'flex-end',
         gap: '4px',
-        width: '160px',
+        width: '168px',
         maxHeight: 'calc(100% - 16px)',
         pointerEvents: 'auto',
       }}
@@ -610,11 +647,11 @@ function ThumbnailOverlay({ trackRefs, pinnedId, isHost, onPin }: ThumbOverlayPr
         style={{
           background: 'rgba(0,0,0,0.72)',
           border: '1px solid rgba(255,255,255,0.18)',
-          borderRadius: '8px',
+          borderRadius: '9px',
           padding: '5px 12px',
           color: '#fff',
           cursor: 'pointer',
-          fontSize: '13px',
+          fontSize: '12px',
           fontWeight: 700,
           backdropFilter: 'blur(8px)',
           WebkitBackdropFilter: 'blur(8px)',
@@ -625,6 +662,7 @@ function ThumbnailOverlay({ trackRefs, pinnedId, isHost, onPin }: ThumbOverlayPr
           width: '100%',
           justifyContent: 'center',
           letterSpacing: '0.02em',
+          fontFamily: 'inherit',
         }}
       >
         {expanded
@@ -638,7 +676,7 @@ function ThumbnailOverlay({ trackRefs, pinnedId, isHost, onPin }: ThumbOverlayPr
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '4px',
+            gap: '5px',
             overflowY: 'auto',
             maxHeight: 'calc(100% - 44px)',
             width: '100%',
@@ -647,7 +685,6 @@ function ThumbnailOverlay({ trackRefs, pinnedId, isHost, onPin }: ThumbOverlayPr
           {trackRefs.map((ref) => {
             const id = trackIdentity(ref);
             const isPinned = pinnedId === id;
-            const name = ref.participant?.name || ref.participant?.identity || '';
 
             return (
               <div
@@ -660,10 +697,10 @@ function ThumbnailOverlay({ trackRefs, pinnedId, isHost, onPin }: ThumbOverlayPr
                 style={{
                   position: 'relative',
                   width: '100%',
-                  height: '90px',
-                  borderRadius: '8px',
+                  height: '95px',
+                  borderRadius: '10px',
                   overflow: 'hidden',
-                  border: isPinned ? '2px solid #C9A84C' : '2px solid rgba(255,255,255,0.14)',
+                  border: isPinned ? '2px solid #C9A84C' : '2px solid rgba(255,255,255,0.12)',
                   cursor: isHost ? 'pointer' : 'default',
                   flexShrink: 0,
                   background: '#1a1a2e',
@@ -675,65 +712,7 @@ function ThumbnailOverlay({ trackRefs, pinnedId, isHost, onPin }: ThumbOverlayPr
                   disableSpeakingIndicator={false}
                   style={{ width: '100%', height: '100%' }}
                 />
-
-                {/* Nombre + pin badge */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    background: 'linear-gradient(transparent, rgba(0,0,0,0.72))',
-                    padding: '4px 6px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-end',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: 700,
-                      color: '#fff',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      maxWidth: '85%',
-                    }}
-                  >
-                    {name}
-                  </span>
-                  {isPinned && <span style={{ fontSize: '10px' }}>📌</span>}
-                </div>
-
-                {/* Indicador "Fijar" al hover — solo host */}
-                {isHost && !isPinned && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      background: 'rgba(0,0,0,0)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      opacity: 0,
-                      transition: 'opacity 0.15s',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      color: '#fff',
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLDivElement).style.opacity = '1';
-                      (e.currentTarget as HTMLDivElement).style.background = 'rgba(0,0,0,0.4)';
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLDivElement).style.opacity = '0';
-                      (e.currentTarget as HTMLDivElement).style.background = 'rgba(0,0,0,0)';
-                    }}
-                  >
-                    📌 Fijar
-                  </div>
-                )}
+                <Distintivos reaccion={reacciones[id]} mano={manos.has(id)} pin={isPinned} />
               </div>
             );
           })}
@@ -799,9 +778,75 @@ function LayoutToggleButton({
         whiteSpace: 'nowrap',
         letterSpacing: '0.02em',
         transition: 'all 0.15s',
+        fontFamily: 'inherit',
       }}
     >
       {label}
     </button>
+  );
+}
+
+// ── Estilos de sala ───────────────────────────────────────────────────────────
+
+/**
+ * Los cuadros los dibuja LiveKit; aquí solo les cambiamos la piel. Reescribir
+ * el componente entero para redondear una esquina sería cambiar el motor por
+ * el color de la carrocería — y perderíamos gratis todo lo que ya resuelve:
+ * el placeholder cuando no hay cámara, el icono de micro, la calidad de red.
+ */
+function EstilosDeSala() {
+  return (
+    <style>{`
+      .lk-participant-tile {
+        border-radius: 12px;
+        overflow: hidden;
+        background: #1a1a24;
+      }
+      .lk-participant-tile .lk-participant-placeholder { background: #1a1a24; }
+
+      /* Quien habla se enmarca en el oro de Fénix, no en el azul de fábrica. */
+      .lk-participant-tile[data-lk-speaking="true"] {
+        outline: 2px solid #C9A84C;
+        outline-offset: -2px;
+        box-shadow: 0 0 0 3px rgba(201,168,76,0.16);
+      }
+
+      /* El nombre, abajo a la izquierda, en una píldora legible sobre
+         cualquier fondo — como Zoom. */
+      .lk-participant-tile .lk-participant-metadata-item {
+        background: rgba(0,0,0,0.55);
+        border-radius: 8px;
+        padding: 3px 8px;
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+      }
+      .lk-participant-tile .lk-participant-name {
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      /* El chat de LiveKit viene con su propio fondo y su propio borde; dentro
+         de nuestro panel sobran los dos. */
+      .fenix-panel .lk-chat {
+        background: transparent;
+        border: none;
+        height: 100%;
+      }
+      .fenix-panel .lk-chat-form-input {
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 10px;
+        color: #fff;
+      }
+      .fenix-panel .lk-chat-entry { font-size: 13px; }
+
+      @media (max-width: 640px) {
+        .fenix-thumb-overlay { width: 118px !important; }
+        .fenix-thumb-tile    { height: 68px !important; }
+        /* En el móvil el panel se come la pantalla entera: 320px al lado de
+           un vídeo dejarían el vídeo en nada. */
+        .fenix-panel { position: absolute; inset: 0; width: 100% !important; z-index: 150; }
+      }
+    `}</style>
   );
 }

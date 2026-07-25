@@ -25,6 +25,14 @@ export const MSG = {
   HOST_DISABLED_ALL_CAMERAS: 'HOST_DISABLED_ALL_CAMERAS',
   HOST_INVITE_SPEAK: 'HOST_INVITE_SPEAK',
   HOST_INVITE_CAMERA: 'HOST_INVITE_CAMERA',
+
+  // Cualquiera → todos
+  /**
+   * Un emoji que sube por la pantalla y se apaga solo. No cambia nada de la
+   * sala: no silencia, no reparte permisos, no deja rastro. Es la forma de
+   * decir "te sigo" sin cortar a quien está hablando.
+   */
+  REACTION: 'REACTION',
 } as const;
 
 export type MsgType = (typeof MSG)[keyof typeof MSG];
@@ -33,6 +41,7 @@ export interface RoomMessage {
   type: MsgType;
   identity?: string; // identidad del participante objetivo o emisor
   name?: string; // nombre para mostrar
+  emoji?: string; // solo en REACTION
   ts: number; // timestamp en ms
 }
 
