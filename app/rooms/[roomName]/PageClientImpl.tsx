@@ -497,7 +497,12 @@ function VideoConferenceComponent(props: {
         <KeyboardShortcuts />
 
         {/* ── Layout principal: hablante activo, galería, pantalla compartida ── */}
-        <FenixRoomLayout isHost={isHost} intro={props.intro} />
+        <FenixRoomLayout
+          isHost={isHost}
+          intro={props.intro}
+          roomName={props.connectionDetails.roomName}
+          pass={pass}
+        />
 
         {/* ── Panel de moderación — solo host ── */}
         {isHost && (
@@ -578,14 +583,6 @@ function VideoConferenceComponent(props: {
           </div>
         )}
 
-        {/* ── Terminar la sesión — solo host
-            Posición: bottom 260px (encima del botón de grabación) ── */}
-        {isHost && (
-          <div style={{ position: 'fixed', bottom: '260px', right: '16px', zIndex: 9996 }}>
-            <EndSessionButton roomName={props.connectionDetails.roomName} pass={pass} />
-          </div>
-        )}
-
         {/* ── Diálogo de invitación del host (participante) ── */}
         <InviteDialog
           invite={moderation.pendingInvite}
@@ -625,117 +622,6 @@ function VideoConferenceComponent(props: {
         <RecordingIndicator showDot={!isHost} />
       </RoomContext.Provider>
     </div>
-  );
-}
-
-// ── EndSessionButton ──────────────────────────────────────────────────────────
-//
-// Terminar una sesión tenía que significar que la sesión se termina. Hasta hoy
-// solo marcaba la fila como completada en APEX: la sala seguía abierta, los
-// alumnos seguían dentro y la grabación seguía corriendo. El anfitrión creía
-// haber cerrado y no había cerrado nada.
-//
-// Ahora la orden va al servidor de LiveKit: cierra la grabación y borra la
-// sala. Al borrarse, todos los que estaban dentro se desconectan a la vez y
-// caen en la pantalla de salida, incluido quien pulsó.
-//
-// Pide confirmación porque no tiene vuelta atrás y porque está a un dedo de
-// distancia de los otros botones del anfitrión.
-
-function EndSessionButton({ roomName, pass }: { roomName: string; pass: string | null }) {
-  const [confirmando, setConfirmando] = React.useState(false);
-  const [cerrando, setCerrando] = React.useState(false);
-
-  // La pregunta no se queda en pantalla para siempre. Si no responde, se
-  // recoge sola — un "¿seguro?" olvidado ahí es un accidente esperando.
-  React.useEffect(() => {
-    if (!confirmando) return;
-    const id = setTimeout(() => setConfirmando(false), 6000);
-    return () => clearTimeout(id);
-  }, [confirmando]);
-
-  const terminar = React.useCallback(async () => {
-    setCerrando(true);
-    try {
-      const res = await fetch('/api/livekit-admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'endSession', roomName, pass }),
-      });
-      if (!res.ok) throw new Error(await res.text().catch(() => res.statusText));
-      // No hace falta navegar: al borrarse la sala, el propio cliente se
-      // desconecta y `handleOnLeave` lleva a la pantalla de salida.
-    } catch (e) {
-      toast.error(
-        `No se pudo terminar la sesión: ${e instanceof Error ? e.message : 'error desconocido'}`,
-        { duration: 8000 },
-      );
-      setCerrando(false);
-      setConfirmando(false);
-    }
-  }, [roomName, pass]);
-
-  const base: React.CSSProperties = {
-    borderRadius: '10px',
-    padding: '8px 14px',
-    fontSize: '12px',
-    fontWeight: 700,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-    backdropFilter: 'blur(8px)',
-    WebkitBackdropFilter: 'blur(8px)',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.45)',
-  };
-
-  if (confirmando) {
-    return (
-      <div style={{ display: 'flex', gap: '6px' }}>
-        <button
-          onClick={() => void terminar()}
-          disabled={cerrando}
-          style={{
-            ...base,
-            background: 'rgba(239,68,68,0.92)',
-            border: '1px solid rgba(239,68,68,0.7)',
-            color: '#fff',
-            opacity: cerrando ? 0.6 : 1,
-          }}
-        >
-          {cerrando ? 'Terminando…' : 'Sí, terminar para todos'}
-        </button>
-        <button
-          onClick={() => setConfirmando(false)}
-          disabled={cerrando}
-          style={{
-            ...base,
-            background: 'rgba(10,10,15,0.85)',
-            border: '1px solid rgba(255,255,255,0.18)',
-            color: 'rgba(255,255,255,0.7)',
-          }}
-        >
-          No
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <button
-      onClick={() => setConfirmando(true)}
-      title="Termina la sesión para todos y cierra la grabación"
-      style={{
-        ...base,
-        background: 'rgba(10,10,15,0.85)',
-        border: '1px solid rgba(239,68,68,0.45)',
-        color: '#fca5a5',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-      }}
-    >
-      <span>⏹</span>
-      <span>Finalizar sesión</span>
-    </button>
   );
 }
 
