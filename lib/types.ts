@@ -25,4 +25,10 @@ export type ConnectionDetails = {
   roomName: string;
   participantName: string;
   participantToken: string;
+  /**
+   * Lo que el servidor decidió, no lo que la URL pedía. El panel de moderación
+   * se dibuja a partir de esto para que nunca aparezcan controles que el token
+   * no respalda.
+   */
+  isHost?: boolean;
 };

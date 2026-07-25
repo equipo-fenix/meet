@@ -18,6 +18,8 @@ export default async function Page({
     name?: string;
     mic?: string;
     cam?: string;
+    // Pase firmado por APEX. Es lo único que concede rol de anfitrión.
+    pass?: string;
   }>;
 }) {
   const _params = await params;
@@ -28,7 +30,8 @@ export default async function Page({
       : 'h264';  // H264: hardware encode/decode en Apple (VideoToolbox) — mejor calidad/CPU que VP9 SVC
   const hq = _searchParams.hq === 'true' ? true : false;
   const singlePC = _searchParams.singlePC !== 'false';
-  // role=host → panel de moderación visible; cualquier otro valor → asistente
+  // ?role=host ya no concede nada: sirve, como mucho, de pista para la interfaz
+  // mientras el servidor responde. Quien decide es el pase.
   const role = _searchParams.role === 'host' ? 'host' : 'attendee';
 
   return (
@@ -39,6 +42,7 @@ export default async function Page({
       codec={codec}
       singlePeerConnection={singlePC}
       role={role}
+      pass={typeof _searchParams.pass === 'string' ? _searchParams.pass : undefined}
       name={typeof _searchParams.name === 'string' ? _searchParams.name : undefined}
       micDefault={_searchParams.mic === '1'}
       camDefault={_searchParams.cam !== '0'}

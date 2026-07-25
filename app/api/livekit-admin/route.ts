@@ -11,13 +11,15 @@
  * solo puede silenciar la pista publicada a nivel servidor. El participante
  * recibe la notificación vía DataMessage desde el host.
  *
- * Nota de seguridad: En producción deberías validar que quien llama es realmente
- * el host (verificar el JWT del request). Por ahora, la ruta es accesible desde
- * el frontend del host.
+ * Autorización: cada orden llega acompañada del pase firmado por APEX con el
+ * que entró el anfitrión. Se comprueba que el pase sea válido, que sea de
+ * anfitrión y que corresponda a ESTA sala. Sin eso, callar a una sala entera
+ * era cuestión de mandar un POST.
  */
 
 import { RoomServiceClient } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyRoomPass, roomPassEnforced } from '@/lib/roomPass';
 
 const API_KEY    = process.env.LIVEKIT_API_KEY!;
 const API_SECRET = process.env.LIVEKIT_API_SECRET!;
@@ -33,15 +35,23 @@ interface RequestBody {
   action: string;
   roomName: string;
   identity?: string;
+  pass?: string;
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const body = await req.json() as RequestBody;
-    const { action, roomName, identity } = body;
+    const { action, roomName, identity, pass } = body;
 
     if (!roomName) {
       return new NextResponse('Missing roomName', { status: 400 });
+    }
+
+    // Solo el anfitrión de esta sala manda aquí.
+    const passCheck = verifyRoomPass(pass, roomName);
+    const isHost = passCheck.valid && passCheck.payload.h === 1;
+    if (!isHost && roomPassEnforced()) {
+      return new NextResponse('Not a host of this room', { status: 403 });
     }
 
     const svc = getServiceClient();

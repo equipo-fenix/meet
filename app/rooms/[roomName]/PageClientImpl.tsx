@@ -46,7 +46,8 @@ export function PageClientImpl(props: {
   hq: boolean;
   codec: VideoCodec;
   singlePeerConnection: boolean;
-  role: string; // 'host' | 'attendee'
+  role: string; // pista para la interfaz; el permiso real lo concede el pase
+  pass?: string;
   name?: string;
   micDefault?: boolean;
   camDefault?: boolean;
@@ -54,6 +55,7 @@ export function PageClientImpl(props: {
   const [preJoinChoices, setPreJoinChoices] = React.useState<LocalUserChoices | undefined>(
     undefined,
   );
+  const [joinError, setJoinError] = React.useState<string | null>(null);
   const preJoinDefaults = React.useMemo(() => ({
     username: props.name ?? '',
     videoEnabled: props.camDefault ?? true,
@@ -64,16 +66,29 @@ export function PageClientImpl(props: {
   );
 
   const handlePreJoinSubmit = React.useCallback(async (values: LocalUserChoices) => {
+    setJoinError(null);
     setPreJoinChoices(values);
     const url = new URL(CONN_DETAILS_ENDPOINT, window.location.origin);
     url.searchParams.append('roomName', props.roomName);
     url.searchParams.append('participantName', values.username);
     if (props.region) url.searchParams.append('region', props.region);
     url.searchParams.append('role', props.role);
+    if (props.pass) url.searchParams.append('pass', props.pass);
     const resp = await fetch(url.toString());
+    if (!resp.ok) {
+      // La puerta dijo que no. Devolvemos a la persona al lobby con un motivo
+      // en su idioma, en vez de dejarla mirando una pantalla en blanco.
+      setPreJoinChoices(undefined);
+      setJoinError(
+        resp.status === 403
+          ? 'Este enlace no da acceso por sí solo. Entra desde tu agenda en la Academia o pide al anfitrión que te deje pasar.'
+          : 'No pudimos conectarte a la sala. Vuelve a intentarlo en unos segundos.',
+      );
+      return;
+    }
     const data = await resp.json();
     setConnectionDetails(data);
-  }, [props.role, props.region, props.roomName]);
+  }, [props.role, props.region, props.roomName, props.pass]);
 
   const handlePreJoinError = React.useCallback((e: Error) => console.error(e), []);
 
@@ -81,11 +96,31 @@ export function PageClientImpl(props: {
     <main data-lk-theme="default" style={{ height: '100%' }}>
       {connectionDetails === undefined || preJoinChoices === undefined ? (
         <div style={{ display: 'grid', placeItems: 'center', height: '100%' }}>
-          <PreJoin
-            defaults={preJoinDefaults}
-            onSubmit={handlePreJoinSubmit}
-            onError={handlePreJoinError}
-          />
+          <div>
+            {joinError && (
+              <div
+                style={{
+                  maxWidth: 420,
+                  margin: '0 auto 16px',
+                  padding: '12px 16px',
+                  borderRadius: 12,
+                  background: 'rgba(220,38,38,0.12)',
+                  border: '1px solid rgba(220,38,38,0.35)',
+                  color: '#fca5a5',
+                  fontSize: 14,
+                  lineHeight: 1.45,
+                  textAlign: 'center',
+                }}
+              >
+                {joinError}
+              </div>
+            )}
+            <PreJoin
+              defaults={preJoinDefaults}
+              onSubmit={handlePreJoinSubmit}
+              onError={handlePreJoinError}
+            />
+          </div>
         </div>
       ) : (
         <VideoConferenceComponent
@@ -96,7 +131,7 @@ export function PageClientImpl(props: {
             hq: props.hq,
             singlePeerConnection: props.singlePeerConnection,
           }}
-          role={props.role}
+          role={connectionDetails.isHost ? 'host' : 'attendee'}
         />
       )}
     </main>
@@ -522,7 +557,12 @@ function RecordingButton({ roomName }: { roomName: string }) {
     setLoading(true);
     try {
       const endpoint = isRecording ? '/api/record/stop' : '/api/record/start';
-      const res = await fetch(`${endpoint}?roomName=${encodeURIComponent(roomName)}`);
+      // Grabar es una acción de anfitrión: va firmada con el mismo pase.
+      const pass = new URLSearchParams(window.location.search).get('pass');
+      const res = await fetch(
+        `${endpoint}?roomName=${encodeURIComponent(roomName)}` +
+          (pass ? `&pass=${encodeURIComponent(pass)}` : ''),
+      );
       if (res.status === 409) {
         toast('Ya hay una grabación activa', { duration: 3000 });
       } else if (!res.ok) {

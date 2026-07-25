@@ -176,10 +176,18 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
   // ── Helpers internos ───────────────────────────────────────────────────────
 
   const adminFetch = React.useCallback(async (body: object): Promise<void> => {
+    // El pase con el que entró el anfitrión viaja también en las órdenes de
+    // moderación: silenciar a una sala entera es una acción de anfitrión, y el
+    // servidor tiene que poder comprobarlo por su cuenta en vez de fiarse de
+    // que quien llama es la propia interfaz.
+    const pass =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('pass')
+        : null;
     const res = await fetch('/api/livekit-admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(pass ? { ...body, pass } : body),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => res.statusText);

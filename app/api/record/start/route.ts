@@ -1,19 +1,21 @@
 import { EgressClient, EncodedFileOutput, S3Upload } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyRoomPass, roomPassEnforced } from '@/lib/roomPass';
 
 export async function GET(req: NextRequest) {
   try {
     const roomName = req.nextUrl.searchParams.get('roomName');
 
-    /**
-     * CAUTION:
-     * for simplicity this implementation does not authenticate users and therefore allows anyone with knowledge of a roomName
-     * to start/stop recordings for that room.
-     * DO NOT USE THIS FOR PRODUCTION PURPOSES AS IS
-     */
-
     if (roomName === null) {
       return new NextResponse('Missing roomName parameter', { status: 403 });
+    }
+
+    // Solo el anfitrión graba. El aviso original de LiveKit decía que esta ruta
+    // no autenticaba a nadie y que no se usara así en producción; ahora exige el
+    // pase de anfitrión de esta misma sala.
+    const passCheck = verifyRoomPass(req.nextUrl.searchParams.get('pass'), roomName);
+    if (!(passCheck.valid && passCheck.payload.h === 1) && roomPassEnforced()) {
+      return new NextResponse('Not a host of this room', { status: 403 });
     }
 
     const {
