@@ -23,6 +23,7 @@ import {
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import { IntroStage } from './IntroStage';
+import { EndSessionButton } from './EndSessionButton';
 import type { IntroRef } from '@/lib/vimeoIntro';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -40,6 +41,9 @@ interface FenixRoomLayoutProps {
   isHost: boolean;
   /** Cortinilla de apertura. Ausente = la sala abre directo a las cámaras. */
   intro?: IntroConfig | null;
+  /** Necesarios para que el anfitrión pueda cerrar la sala desde la barra. */
+  roomName: string;
+  pass: string | null;
 }
 
 function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
@@ -48,7 +52,7 @@ function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
-export function FenixRoomLayout({ isHost, intro }: FenixRoomLayoutProps) {
+export function FenixRoomLayout({ isHost, intro, roomName, pass }: FenixRoomLayoutProps) {
   const [mode, setMode] = React.useState<LayoutMode>('stage');
   const [chatOpen, setChatOpen] = React.useState(false);
   const [pinnedId, setPinnedId] = React.useState<string | null>(null);
@@ -471,18 +475,33 @@ export function FenixRoomLayout({ isHost, intro }: FenixRoomLayoutProps) {
               background: 'rgba(10,10,15,0.95)',
             }}
           >
-            <ControlBar
-              variation="minimal"
-              controls={{
-                // Todos los participantes pueden activar su micrófono libremente.
-                // El host puede silenciarlos desde el ModeratorPanel.
-                microphone: true,
-                camera: true,
-                screenShare: isHost,
-                chat: false,
-                leave: true,
+            {/* Para el alumno el botón rojo es el de LiveKit y hace lo que
+                dice: se va él. Para el anfitrión lo cambiamos por el nuestro
+                —mismo sitio, mismo color— porque cuando el anfitrión se va, la
+                sesión se acabó para todos. */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                flexWrap: 'wrap',
               }}
-            />
+            >
+              <ControlBar
+                variation="minimal"
+                controls={{
+                  // Todos los participantes pueden activar su micrófono libremente.
+                  // El host puede silenciarlos desde el ModeratorPanel.
+                  microphone: true,
+                  camera: true,
+                  screenShare: isHost,
+                  chat: false,
+                  leave: !isHost,
+                }}
+              />
+              {isHost && <EndSessionButton roomName={roomName} pass={pass} />}
+            </div>
           </div>
         </div>
 
