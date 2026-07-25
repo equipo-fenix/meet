@@ -13,6 +13,11 @@ export default async function Page({
     codec?: string;
     singlePC?: string;
     role?: string; // 'host' | 'attendee'
+    // APEX manda la identidad y las preferencias del lobby para que la persona
+    // no tenga que escribir su nombre otra vez ni volver a elegir dispositivos.
+    name?: string;
+    mic?: string;
+    cam?: string;
   }>;
 }) {
   const _params = await params;
@@ -34,6 +39,9 @@ export default async function Page({
       codec={codec}
       singlePeerConnection={singlePC}
       role={role}
+      name={typeof _searchParams.name === 'string' ? _searchParams.name : undefined}
+      micDefault={_searchParams.mic === '1'}
+      camDefault={_searchParams.cam !== '0'}
     />
   );
 }

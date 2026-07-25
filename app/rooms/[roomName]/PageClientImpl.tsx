@@ -47,15 +47,18 @@ export function PageClientImpl(props: {
   codec: VideoCodec;
   singlePeerConnection: boolean;
   role: string; // 'host' | 'attendee'
+  name?: string;
+  micDefault?: boolean;
+  camDefault?: boolean;
 }) {
   const [preJoinChoices, setPreJoinChoices] = React.useState<LocalUserChoices | undefined>(
     undefined,
   );
   const preJoinDefaults = React.useMemo(() => ({
-    username: '',
-    videoEnabled: true,
-    audioEnabled: false, // webinar: participantes entran silenciados
-  }), []);
+    username: props.name ?? '',
+    videoEnabled: props.camDefault ?? true,
+    audioEnabled: props.micDefault ?? false,
+  }), [props.name, props.camDefault, props.micDefault]);
   const [connectionDetails, setConnectionDetails] = React.useState<ConnectionDetails | undefined>(
     undefined,
   );
