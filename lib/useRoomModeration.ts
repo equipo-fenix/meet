@@ -43,23 +43,31 @@ export interface ModerationState {
   /** Acciones disponibles (host o participante según rol) */
   actions: {
     // Host
-    muteParticipant:    (identity: string, name: string, roomName: string) => Promise<void>;
-    muteAll:            (roomName: string) => Promise<void>;
-    disableCamera:      (identity: string, name: string, roomName: string) => Promise<void>;
-    disableAllCameras:  (roomName: string) => Promise<void>;
-    inviteToSpeak:      (identity: string) => Promise<void>;
-    inviteToCamera:     (identity: string) => Promise<void>;
+    muteParticipant: (identity: string, name: string, roomName: string) => Promise<void>;
+    muteAll: (roomName: string) => Promise<void>;
+    disableCamera: (identity: string, name: string, roomName: string) => Promise<void>;
+    disableAllCameras: (roomName: string) => Promise<void>;
+    inviteToSpeak: (identity: string) => Promise<void>;
+    inviteToCamera: (identity: string) => Promise<void>;
     // Participante
-    raiseHand:          () => Promise<void>;
-    lowerHand:          () => Promise<void>;
-    dismissInvite:      (accepted: boolean) => Promise<void>;
+    raiseHand: () => Promise<void>;
+    lowerHand: () => Promise<void>;
+    dismissInvite: (accepted: boolean) => Promise<void>;
   };
 }
 
 // ── Estilos de toast por contexto ──────────────────────────────────────────────
 
-const darkToast = { background: '#1a1a2e', color: '#ffffff', border: '1px solid rgba(201,168,76,0.2)' };
-const warnToast = { background: '#1a1a2e', color: '#ffffff', border: '1px solid rgba(239,68,68,0.3)' };
+const darkToast = {
+  background: '#1a1a2e',
+  color: '#ffffff',
+  border: '1px solid rgba(201,168,76,0.2)',
+};
+const warnToast = {
+  background: '#1a1a2e',
+  color: '#ffffff',
+  border: '1px solid rgba(239,68,68,0.3)',
+};
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -85,22 +93,26 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
         // El host recibe eventos de participantes
         switch (msg.type) {
           case MSG.RAISE_HAND:
-            setRaisedHands(prev =>
-              prev.some(h => h.identity === msg.identity)
+            setRaisedHands((prev) =>
+              prev.some((h) => h.identity === msg.identity)
                 ? prev
-                : [...prev, { identity: msg.identity!, name: msg.name!, ts: msg.ts }]
+                : [...prev, { identity: msg.identity!, name: msg.name!, ts: msg.ts }],
             );
             toast(`✋ ${msg.name} solicitó hablar`, {
               duration: 10000,
-              style: { background: '#1a1a2e', color: '#C9A84C', border: '1px solid rgba(201,168,76,0.35)' },
+              style: {
+                background: '#1a1a2e',
+                color: '#C9A84C',
+                border: '1px solid rgba(201,168,76,0.35)',
+              },
             });
             break;
           case MSG.LOWER_HAND:
-            setRaisedHands(prev => prev.filter(h => h.identity !== msg.identity));
+            setRaisedHands((prev) => prev.filter((h) => h.identity !== msg.identity));
             break;
           case MSG.PARTICIPANT_ACCEPT_SPEAK:
             toast(`🎙️ ${msg.name} activó su micrófono`, { duration: 3000, style: darkToast });
-            setRaisedHands(prev => prev.filter(h => h.identity !== msg.identity));
+            setRaisedHands((prev) => prev.filter((h) => h.identity !== msg.identity));
             break;
           case MSG.PARTICIPANT_DECLINE_SPEAK:
             toast(`${msg.name} prefirió no hablar ahora`, { duration: 3000, style: darkToast });
@@ -109,7 +121,10 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
             toast(`📷 ${msg.name} activó su cámara`, { duration: 3000, style: darkToast });
             break;
           case MSG.PARTICIPANT_DECLINE_CAMERA:
-            toast(`${msg.name} prefirió no activar su cámara`, { duration: 3000, style: darkToast });
+            toast(`${msg.name} prefirió no activar su cámara`, {
+              duration: 3000,
+              style: darkToast,
+            });
             break;
         }
       } else {
@@ -117,22 +132,30 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
         switch (msg.type) {
           case MSG.HOST_MUTED_YOU:
             toast('El anfitrión silenció tu micrófono.', {
-              duration: 8000, icon: '🔇', style: warnToast,
+              duration: 8000,
+              icon: '🔇',
+              style: warnToast,
             });
             break;
           case MSG.HOST_DISABLED_CAMERA:
             toast('El anfitrión apagó tu cámara.', {
-              duration: 6000, icon: '📷', style: warnToast,
+              duration: 6000,
+              icon: '📷',
+              style: warnToast,
             });
             break;
           case MSG.HOST_MUTED_ALL:
             toast('El anfitrión silenció todos los micrófonos.', {
-              duration: 5000, icon: '🔇', style: darkToast,
+              duration: 5000,
+              icon: '🔇',
+              style: darkToast,
             });
             break;
           case MSG.HOST_DISABLED_ALL_CAMERAS:
             toast('El anfitrión apagó todas las cámaras.', {
-              duration: 5000, icon: '📷', style: darkToast,
+              duration: 5000,
+              icon: '📷',
+              style: darkToast,
             });
             break;
           case MSG.HOST_INVITE_SPEAK:
@@ -146,7 +169,9 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
     };
 
     room.on(RoomEvent.DataReceived, handleData);
-    return () => { room.off(RoomEvent.DataReceived, handleData); };
+    return () => {
+      room.off(RoomEvent.DataReceived, handleData);
+    };
   }, [room, isHost]);
 
   // ── Avisos de entrada/salida ───────────────────────────────────────────────
@@ -156,7 +181,7 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
     };
     const onLeave = (p: RemoteParticipant) => {
       toast(`${p.name || p.identity} salió`, { duration: 3000, style: darkToast });
-      setRaisedHands(prev => prev.filter(h => h.identity !== p.identity));
+      setRaisedHands((prev) => prev.filter((h) => h.identity !== p.identity));
     };
     room.on(RoomEvent.ParticipantConnected, onJoin);
     room.on(RoomEvent.ParticipantDisconnected, onLeave);
@@ -195,138 +220,182 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
     }
   }, []);
 
-  const broadcast = React.useCallback(async (msg: RoomMessage, to?: string): Promise<void> => {
-    const data = encodeMsg(msg);
-    const opts = to
-      ? { reliable: true, destinationIdentities: [to] }
-      : { reliable: true };
-    await room.localParticipant.publishData(data, opts);
-  }, [room]);
+  const broadcast = React.useCallback(
+    async (msg: RoomMessage, to?: string): Promise<void> => {
+      const data = encodeMsg(msg);
+      const opts = to ? { reliable: true, destinationIdentities: [to] } : { reliable: true };
+      await room.localParticipant.publishData(data, opts);
+    },
+    [room],
+  );
 
   // ── Acciones ───────────────────────────────────────────────────────────────
 
-  const muteParticipant = React.useCallback(async (identity: string, name: string, roomName: string) => {
-    await adminFetch({ action: 'mute', roomName, identity }).catch(e => console.warn('[mod] mute error:', e));
-    await broadcast({ type: MSG.HOST_MUTED_YOU, identity, name, ts: Date.now() }, identity);
-  }, [adminFetch, broadcast]);
+  const muteParticipant = React.useCallback(
+    async (identity: string, name: string, roomName: string) => {
+      await adminFetch({ action: 'mute', roomName, identity }).catch((e) =>
+        console.warn('[mod] mute error:', e),
+      );
+      await broadcast({ type: MSG.HOST_MUTED_YOU, identity, name, ts: Date.now() }, identity);
+    },
+    [adminFetch, broadcast],
+  );
 
-  const muteAll = React.useCallback(async (roomName: string) => {
-    await adminFetch({ action: 'muteAll', roomName }).catch(e => console.warn('[mod] muteAll error:', e));
-    await broadcast({ type: MSG.HOST_MUTED_ALL, ts: Date.now() });
-  }, [adminFetch, broadcast]);
+  const muteAll = React.useCallback(
+    async (roomName: string) => {
+      await adminFetch({ action: 'muteAll', roomName }).catch((e) =>
+        console.warn('[mod] muteAll error:', e),
+      );
+      await broadcast({ type: MSG.HOST_MUTED_ALL, ts: Date.now() });
+    },
+    [adminFetch, broadcast],
+  );
 
-  const disableCamera = React.useCallback(async (identity: string, name: string, roomName: string) => {
-    await adminFetch({ action: 'disableCamera', roomName, identity }).catch(e => console.warn('[mod] disableCam error:', e));
-    await broadcast({ type: MSG.HOST_DISABLED_CAMERA, identity, name, ts: Date.now() }, identity);
-  }, [adminFetch, broadcast]);
+  const disableCamera = React.useCallback(
+    async (identity: string, name: string, roomName: string) => {
+      await adminFetch({ action: 'disableCamera', roomName, identity }).catch((e) =>
+        console.warn('[mod] disableCam error:', e),
+      );
+      await broadcast({ type: MSG.HOST_DISABLED_CAMERA, identity, name, ts: Date.now() }, identity);
+    },
+    [adminFetch, broadcast],
+  );
 
-  const disableAllCameras = React.useCallback(async (roomName: string) => {
-    await adminFetch({ action: 'disableAllCameras', roomName }).catch(e => console.warn('[mod] disableAllCams error:', e));
-    await broadcast({ type: MSG.HOST_DISABLED_ALL_CAMERAS, ts: Date.now() });
-  }, [adminFetch, broadcast]);
+  const disableAllCameras = React.useCallback(
+    async (roomName: string) => {
+      await adminFetch({ action: 'disableAllCameras', roomName }).catch((e) =>
+        console.warn('[mod] disableAllCams error:', e),
+      );
+      await broadcast({ type: MSG.HOST_DISABLED_ALL_CAMERAS, ts: Date.now() });
+    },
+    [adminFetch, broadcast],
+  );
 
-  const inviteToSpeak = React.useCallback(async (identity: string) => {
-    const me = room.localParticipant;
-    await broadcast(
-      { type: MSG.HOST_INVITE_SPEAK, identity, name: me.name || me.identity, ts: Date.now() },
-      identity
-    );
-    setRaisedHands(prev => prev.filter(h => h.identity !== identity));
-  }, [room, broadcast]);
+  const inviteToSpeak = React.useCallback(
+    async (identity: string) => {
+      const me = room.localParticipant;
+      await broadcast(
+        { type: MSG.HOST_INVITE_SPEAK, identity, name: me.name || me.identity, ts: Date.now() },
+        identity,
+      );
+      setRaisedHands((prev) => prev.filter((h) => h.identity !== identity));
+    },
+    [room, broadcast],
+  );
 
-  const inviteToCamera = React.useCallback(async (identity: string) => {
-    const me = room.localParticipant;
-    await broadcast(
-      { type: MSG.HOST_INVITE_CAMERA, identity, name: me.name || me.identity, ts: Date.now() },
-      identity
-    );
-  }, [room, broadcast]);
+  const inviteToCamera = React.useCallback(
+    async (identity: string) => {
+      const me = room.localParticipant;
+      await broadcast(
+        { type: MSG.HOST_INVITE_CAMERA, identity, name: me.name || me.identity, ts: Date.now() },
+        identity,
+      );
+    },
+    [room, broadcast],
+  );
 
   const raiseHand = React.useCallback(async () => {
     const me = room.localParticipant;
-    await broadcast({ type: MSG.RAISE_HAND, identity: me.identity, name: me.name || me.identity, ts: Date.now() });
+    await broadcast({
+      type: MSG.RAISE_HAND,
+      identity: me.identity,
+      name: me.name || me.identity,
+      ts: Date.now(),
+    });
   }, [room, broadcast]);
 
   const lowerHand = React.useCallback(async () => {
     const me = room.localParticipant;
-    await broadcast({ type: MSG.LOWER_HAND, identity: me.identity, name: me.name || me.identity, ts: Date.now() });
+    await broadcast({
+      type: MSG.LOWER_HAND,
+      identity: me.identity,
+      name: me.name || me.identity,
+      ts: Date.now(),
+    });
   }, [room, broadcast]);
 
-  const dismissInvite = React.useCallback(async (accepted: boolean) => {
-    if (!pendingInvite) return;
-    const me = room.localParticipant;
-    const inviteType = pendingInvite; // capturar antes de limpiar estado
-    setPendingInvite(null);
+  const dismissInvite = React.useCallback(
+    async (accepted: boolean) => {
+      if (!pendingInvite) return;
+      const me = room.localParticipant;
+      const inviteType = pendingInvite; // capturar antes de limpiar estado
+      setPendingInvite(null);
 
-    if (accepted) {
-      if (inviteType === 'speak') {
-        // ── CRÍTICO: llamar setMicrophoneEnabled ANTES de cualquier await ──────
-        // iOS Safari y Chrome mobile requieren que getUserMedia() se dispare
-        // dentro del scope del gesto del usuario (el tap en "Activar micrófono").
-        // Un `await broadcast()` previo rompería ese scope y el mic no se activaría.
-        // Disparamos la promesa primero (sin await) para capturar el gesto.
-        setMicUnlocked(true);
-        const micPromise = room.localParticipant.setMicrophoneEnabled(true);
+      if (accepted) {
+        if (inviteType === 'speak') {
+          // ── CRÍTICO: llamar setMicrophoneEnabled ANTES de cualquier await ──────
+          // iOS Safari y Chrome mobile requieren que getUserMedia() se dispare
+          // dentro del scope del gesto del usuario (el tap en "Activar micrófono").
+          // Un `await broadcast()` previo rompería ese scope y el mic no se activaría.
+          // Disparamos la promesa primero (sin await) para capturar el gesto.
+          setMicUnlocked(true);
+          const micPromise = room.localParticipant.setMicrophoneEnabled(true);
 
-        // Broadcast concurrente — no bloquea la activación del mic
-        await broadcast({
-          type: MSG.PARTICIPANT_ACCEPT_SPEAK,
-          identity: me.identity,
-          name: me.name || me.identity,
-          ts: Date.now(),
-        });
+          // Broadcast concurrente — no bloquea la activación del mic
+          await broadcast({
+            type: MSG.PARTICIPANT_ACCEPT_SPEAK,
+            identity: me.identity,
+            name: me.name || me.identity,
+            ts: Date.now(),
+          });
 
-        // Ahora esperamos la promesa del mic y manejamos errores con UX visible
-        try {
-          await micPromise;
-        } catch (e: unknown) {
-          const err = e as Error;
-          if (err?.name === 'NotAllowedError') {
-            toast('Necesitas permitir el acceso al micrófono en tu navegador para poder hablar.', {
-              duration: 8000,
-              icon: '🎙️',
-              style: warnToast,
-            });
-          } else {
-            console.warn('[mod] error activating mic:', err);
+          // Ahora esperamos la promesa del mic y manejamos errores con UX visible
+          try {
+            await micPromise;
+          } catch (e: unknown) {
+            const err = e as Error;
+            if (err?.name === 'NotAllowedError') {
+              toast(
+                'Necesitas permitir el acceso al micrófono en tu navegador para poder hablar.',
+                {
+                  duration: 8000,
+                  icon: '🎙️',
+                  style: warnToast,
+                },
+              );
+            } else {
+              console.warn('[mod] error activating mic:', err);
+            }
+          }
+        } else {
+          // Cámara: mismo patrón — disparar antes de broadcast
+          const camPromise = room.localParticipant.setCameraEnabled(true);
+
+          await broadcast({
+            type: MSG.PARTICIPANT_ACCEPT_CAMERA,
+            identity: me.identity,
+            name: me.name || me.identity,
+            ts: Date.now(),
+          });
+
+          try {
+            await camPromise;
+          } catch (e: unknown) {
+            const err = e as Error;
+            if (err?.name === 'NotAllowedError') {
+              toast('Necesitas permitir el acceso a la cámara en tu navegador.', {
+                duration: 8000,
+                icon: '📷',
+                style: warnToast,
+              });
+            } else {
+              console.warn('[mod] error activating camera:', err);
+            }
           }
         }
       } else {
-        // Cámara: mismo patrón — disparar antes de broadcast
-        const camPromise = room.localParticipant.setCameraEnabled(true);
-
+        // Declined
         await broadcast({
-          type: MSG.PARTICIPANT_ACCEPT_CAMERA,
+          type:
+            inviteType === 'speak' ? MSG.PARTICIPANT_DECLINE_SPEAK : MSG.PARTICIPANT_DECLINE_CAMERA,
           identity: me.identity,
           name: me.name || me.identity,
           ts: Date.now(),
         });
-
-        try {
-          await camPromise;
-        } catch (e: unknown) {
-          const err = e as Error;
-          if (err?.name === 'NotAllowedError') {
-            toast('Necesitas permitir el acceso a la cámara en tu navegador.', {
-              duration: 8000,
-              icon: '📷',
-              style: warnToast,
-            });
-          } else {
-            console.warn('[mod] error activating camera:', err);
-          }
-        }
       }
-    } else {
-      // Declined
-      await broadcast({
-        type: inviteType === 'speak' ? MSG.PARTICIPANT_DECLINE_SPEAK : MSG.PARTICIPANT_DECLINE_CAMERA,
-        identity: me.identity,
-        name: me.name || me.identity,
-        ts: Date.now(),
-      });
-    }
-  }, [room, pendingInvite, broadcast]);
+    },
+    [room, pendingInvite, broadcast],
+  );
 
   return {
     raisedHands,

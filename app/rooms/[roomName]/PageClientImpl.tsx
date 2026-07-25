@@ -6,12 +6,7 @@ import { DebugMode } from '@/lib/Debug';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { ConnectionDetails } from '@/lib/types';
-import {
-  LocalUserChoices,
-  PreJoin,
-  RoomContext,
-  useIsRecording,
-} from '@livekit/components-react';
+import { LocalUserChoices, PreJoin, RoomContext, useIsRecording } from '@livekit/components-react';
 import { ModeratorPanel } from './ModeratorPanel';
 import { FenixRoomLayout } from './FenixRoomLayout';
 import {
@@ -56,39 +51,45 @@ export function PageClientImpl(props: {
     undefined,
   );
   const [joinError, setJoinError] = React.useState<string | null>(null);
-  const preJoinDefaults = React.useMemo(() => ({
-    username: props.name ?? '',
-    videoEnabled: props.camDefault ?? true,
-    audioEnabled: props.micDefault ?? false,
-  }), [props.name, props.camDefault, props.micDefault]);
+  const preJoinDefaults = React.useMemo(
+    () => ({
+      username: props.name ?? '',
+      videoEnabled: props.camDefault ?? true,
+      audioEnabled: props.micDefault ?? false,
+    }),
+    [props.name, props.camDefault, props.micDefault],
+  );
   const [connectionDetails, setConnectionDetails] = React.useState<ConnectionDetails | undefined>(
     undefined,
   );
 
-  const handlePreJoinSubmit = React.useCallback(async (values: LocalUserChoices) => {
-    setJoinError(null);
-    setPreJoinChoices(values);
-    const url = new URL(CONN_DETAILS_ENDPOINT, window.location.origin);
-    url.searchParams.append('roomName', props.roomName);
-    url.searchParams.append('participantName', values.username);
-    if (props.region) url.searchParams.append('region', props.region);
-    url.searchParams.append('role', props.role);
-    if (props.pass) url.searchParams.append('pass', props.pass);
-    const resp = await fetch(url.toString());
-    if (!resp.ok) {
-      // La puerta dijo que no. Devolvemos a la persona al lobby con un motivo
-      // en su idioma, en vez de dejarla mirando una pantalla en blanco.
-      setPreJoinChoices(undefined);
-      setJoinError(
-        resp.status === 403
-          ? 'Este enlace no da acceso por sí solo. Entra desde tu agenda en la Academia o pide al anfitrión que te deje pasar.'
-          : 'No pudimos conectarte a la sala. Vuelve a intentarlo en unos segundos.',
-      );
-      return;
-    }
-    const data = await resp.json();
-    setConnectionDetails(data);
-  }, [props.role, props.region, props.roomName, props.pass]);
+  const handlePreJoinSubmit = React.useCallback(
+    async (values: LocalUserChoices) => {
+      setJoinError(null);
+      setPreJoinChoices(values);
+      const url = new URL(CONN_DETAILS_ENDPOINT, window.location.origin);
+      url.searchParams.append('roomName', props.roomName);
+      url.searchParams.append('participantName', values.username);
+      if (props.region) url.searchParams.append('region', props.region);
+      url.searchParams.append('role', props.role);
+      if (props.pass) url.searchParams.append('pass', props.pass);
+      const resp = await fetch(url.toString());
+      if (!resp.ok) {
+        // La puerta dijo que no. Devolvemos a la persona al lobby con un motivo
+        // en su idioma, en vez de dejarla mirando una pantalla en blanco.
+        setPreJoinChoices(undefined);
+        setJoinError(
+          resp.status === 403
+            ? 'Este enlace no da acceso por sí solo. Entra desde tu agenda en la Academia o pide al anfitrión que te deje pasar.'
+            : 'No pudimos conectarte a la sala. Vuelve a intentarlo en unos segundos.',
+        );
+        return;
+      }
+      const data = await resp.json();
+      setConnectionDetails(data);
+    },
+    [props.role, props.region, props.roomName, props.pass],
+  );
 
   const handlePreJoinError = React.useCallback((e: Error) => console.error(e), []);
 
@@ -175,11 +176,13 @@ function VideoConferenceComponent(props: {
 
   // ── Mejora de imagen (solo host) ─────────────────────────────────────────
   const [videoEnhanced, setVideoEnhanced] = React.useState(false);
-  const [enhanceMs, setEnhanceMs]         = React.useState<number | null>(null);
-  const processorRef     = React.useRef<VideoEnhanceProcessor | null>(null);
-  const perfTimerRef     = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const [enhanceMs, setEnhanceMs] = React.useState<number | null>(null);
+  const processorRef = React.useRef<VideoEnhanceProcessor | null>(null);
+  const perfTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const videoEnhancedRef = React.useRef(false);
-  React.useEffect(() => { videoEnhancedRef.current = videoEnhanced; }, [videoEnhanced]);
+  React.useEffect(() => {
+    videoEnhancedRef.current = videoEnhanced;
+  }, [videoEnhanced]);
 
   // ── Room ─────────────────────────────────────────────────────────────────
   const roomOptions = React.useMemo((): RoomOptions => {
@@ -236,55 +239,78 @@ function VideoConferenceComponent(props: {
     };
     room.localParticipant.audioTrackPublications.forEach(applyKrisp);
     room.on(RoomEvent.LocalTrackPublished, applyKrisp);
-    return () => { room.off(RoomEvent.LocalTrackPublished, applyKrisp); };
+    return () => {
+      room.off(RoomEvent.LocalTrackPublished, applyKrisp);
+    };
   }, [room]);
 
   // ── Mejora de imagen ──────────────────────────────────────────────────────
-  const applyEnhancement = React.useCallback(async (pub?: LocalTrackPublication) => {
-    const camPub = pub ?? Array.from(room.localParticipant.videoTrackPublications.values())
-      .find(p => p.source === 'camera' && p.track);
-    if (!camPub?.track) return;
+  const applyEnhancement = React.useCallback(
+    async (pub?: LocalTrackPublication) => {
+      const camPub =
+        pub ??
+        Array.from(room.localParticipant.videoTrackPublications.values()).find(
+          (p) => p.source === 'camera' && p.track,
+        );
+      if (!camPub?.track) return;
 
-    const proc = new VideoEnhanceProcessor();
-    try {
-      // @ts-ignore
-      await camPub.track.setProcessor(proc);
-      processorRef.current = proc;
+      const proc = new VideoEnhanceProcessor();
+      try {
+        // @ts-ignore
+        await camPub.track.setProcessor(proc);
+        processorRef.current = proc;
 
-      if (perfTimerRef.current) clearInterval(perfTimerRef.current);
-      perfTimerRef.current = setInterval(() => {
-        const nowPub = Array.from(room.localParticipant.videoTrackPublications.values())
-          .find(p => p.source === 'camera' && p.track);
-        const active = nowPub?.track?.getProcessor?.();
-        if (!active || active.name !== 'fenix-video-enhance') {
-          console.warn('[VideoEnhance] processor desconectado — sync UI');
-          if (perfTimerRef.current) { clearInterval(perfTimerRef.current); perfTimerRef.current = null; }
-          processorRef.current = null;
-          setEnhanceMs(null);
-          setVideoEnhanced(false);
-          return;
-        }
-        setEnhanceMs(processorRef.current?.lastFrameMs ?? null);
-      }, 1000);
+        if (perfTimerRef.current) clearInterval(perfTimerRef.current);
+        perfTimerRef.current = setInterval(() => {
+          const nowPub = Array.from(room.localParticipant.videoTrackPublications.values()).find(
+            (p) => p.source === 'camera' && p.track,
+          );
+          const active = nowPub?.track?.getProcessor?.();
+          if (!active || active.name !== 'fenix-video-enhance') {
+            console.warn('[VideoEnhance] processor desconectado — sync UI');
+            if (perfTimerRef.current) {
+              clearInterval(perfTimerRef.current);
+              perfTimerRef.current = null;
+            }
+            processorRef.current = null;
+            setEnhanceMs(null);
+            setVideoEnhanced(false);
+            return;
+          }
+          setEnhanceMs(processorRef.current?.lastFrameMs ?? null);
+        }, 1000);
 
-      setVideoEnhanced(true);
-    } catch (err) {
-      console.error('[VideoEnhance] error:', err);
-      await proc.destroy();
-    }
-  }, [room]);
+        setVideoEnhanced(true);
+      } catch (err) {
+        console.error('[VideoEnhance] error:', err);
+        await proc.destroy();
+      }
+    },
+    [room],
+  );
 
   const toggleVideoEnhancement = React.useCallback(async () => {
-    const camPub = Array.from(room.localParticipant.videoTrackPublications.values())
-      .find(p => p.source === 'camera' && p.track);
+    const camPub = Array.from(room.localParticipant.videoTrackPublications.values()).find(
+      (p) => p.source === 'camera' && p.track,
+    );
     if (!camPub?.track) {
       console.warn('[VideoEnhance] sin track de cámara');
       return;
     }
     if (videoEnhanced) {
-      try { await camPub.track.stopProcessor(); } catch { /* ok */ }
-      if (processorRef.current) { await processorRef.current.destroy(); processorRef.current = null; }
-      if (perfTimerRef.current) { clearInterval(perfTimerRef.current); perfTimerRef.current = null; }
+      try {
+        await camPub.track.stopProcessor();
+      } catch {
+        /* ok */
+      }
+      if (processorRef.current) {
+        await processorRef.current.destroy();
+        processorRef.current = null;
+      }
+      if (perfTimerRef.current) {
+        clearInterval(perfTimerRef.current);
+        perfTimerRef.current = null;
+      }
       setEnhanceMs(null);
       setVideoEnhanced(false);
     } else {
@@ -305,29 +331,46 @@ function VideoConferenceComponent(props: {
       if (!videoEnhancedRef.current) return;
       const existing = pub.track.getProcessor?.();
       if (existing?.name === 'fenix-video-enhance') return;
-      if (processorRef.current) { await processorRef.current.destroy().catch(() => {}); processorRef.current = null; }
+      if (processorRef.current) {
+        await processorRef.current.destroy().catch(() => {});
+        processorRef.current = null;
+      }
       if (!isVideoEnhanceSupported()) return;
       await applyEnhancement(pub);
     };
     room.on(RoomEvent.LocalTrackPublished, handle);
-    return () => { room.off(RoomEvent.LocalTrackPublished, handle); };
+    return () => {
+      room.off(RoomEvent.LocalTrackPublished, handle);
+    };
   }, [room, applyEnhancement]);
 
-  React.useEffect(() => () => {
-    if (processorRef.current) { processorRef.current.destroy(); processorRef.current = null; }
-    if (perfTimerRef.current) { clearInterval(perfTimerRef.current); perfTimerRef.current = null; }
-  }, []);
+  React.useEffect(
+    () => () => {
+      if (processorRef.current) {
+        processorRef.current.destroy();
+        processorRef.current = null;
+      }
+      if (perfTimerRef.current) {
+        clearInterval(perfTimerRef.current);
+        perfTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   // ── E2EE ─────────────────────────────────────────────────────────────────
   React.useEffect(() => {
     if (e2eeEnabled) {
-      keyProvider.setKey(decodePassphrase(e2eePassphrase)).then(() => {
-        room.setE2EEEnabled(true).catch((e) => {
-          if (e instanceof DeviceUnsupportedError) {
-            alert('Tu navegador no soporta E2EE. Actualízalo e inténtalo de nuevo.');
-          } else throw e;
-        });
-      }).then(() => setE2eeSetupComplete(true));
+      keyProvider
+        .setKey(decodePassphrase(e2eePassphrase))
+        .then(() => {
+          room.setE2EEEnabled(true).catch((e) => {
+            if (e instanceof DeviceUnsupportedError) {
+              alert('Tu navegador no soporta E2EE. Actualízalo e inténtalo de nuevo.');
+            } else throw e;
+          });
+        })
+        .then(() => setE2eeSetupComplete(true));
     } else {
       setE2eeSetupComplete(true);
     }
@@ -341,24 +384,29 @@ function VideoConferenceComponent(props: {
     room.on(RoomEvent.MediaDevicesError, handleError);
 
     if (e2eeSetupComplete) {
-      room.connect(
-        props.connectionDetails.serverUrl,
-        props.connectionDetails.participantToken,
-        connectOptions,
-      ).then(() => {
-        const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-        if (isIOS) return;
-        if (props.userChoices.videoEnabled) {
-          room.localParticipant.setCameraEnabled(true).catch((err) => {
-            if (err?.name !== 'NotAllowedError' && err?.name !== 'NotFoundError') handleError(err);
-          });
-        }
-        if (props.userChoices.audioEnabled) {
-          room.localParticipant.setMicrophoneEnabled(true).catch((err) => {
-            if (err?.name !== 'NotAllowedError' && err?.name !== 'NotFoundError') handleError(err);
-          });
-        }
-      }).catch(handleError);
+      room
+        .connect(
+          props.connectionDetails.serverUrl,
+          props.connectionDetails.participantToken,
+          connectOptions,
+        )
+        .then(() => {
+          const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+          if (isIOS) return;
+          if (props.userChoices.videoEnabled) {
+            room.localParticipant.setCameraEnabled(true).catch((err) => {
+              if (err?.name !== 'NotAllowedError' && err?.name !== 'NotFoundError')
+                handleError(err);
+            });
+          }
+          if (props.userChoices.audioEnabled) {
+            room.localParticipant.setMicrophoneEnabled(true).catch((err) => {
+              if (err?.name !== 'NotAllowedError' && err?.name !== 'NotFoundError')
+                handleError(err);
+            });
+          }
+        })
+        .catch(handleError);
     }
     return () => {
       room.off(RoomEvent.Disconnected, handleOnLeave);
@@ -368,11 +416,13 @@ function VideoConferenceComponent(props: {
   }, [e2eeSetupComplete, room, props.connectionDetails, props.userChoices]);
 
   const lowPowerMode = useLowCPUOptimizer(room);
-  React.useEffect(() => { if (lowPowerMode) console.warn('Low power mode enabled'); }, [lowPowerMode]);
+  React.useEffect(() => {
+    if (lowPowerMode) console.warn('Low power mode enabled');
+  }, [lowPowerMode]);
 
   // ── iOS hint ─────────────────────────────────────────────────────────────
   const [showIOSHint, setShowIOSHint] = React.useState(() =>
-    /iPhone|iPad|iPod/.test(navigator.userAgent)
+    /iPhone|iPad|iPod/.test(navigator.userAgent),
   );
   React.useEffect(() => {
     if (!showIOSHint) return;
@@ -391,7 +441,9 @@ function VideoConferenceComponent(props: {
         selfBrowserSurface: 'exclude',
         preferCurrentTab: false,
         video: {
-          ...(typeof constraints?.video === 'object' && constraints.video !== null ? constraints.video : {}),
+          ...(typeof constraints?.video === 'object' && constraints.video !== null
+            ? constraints.video
+            : {}),
           // @ts-ignore
           displaySurface: 'window',
           frameRate: { ideal: 30, max: 60 },
@@ -402,12 +454,14 @@ function VideoConferenceComponent(props: {
       };
       return original(patched);
     };
-    return () => { navigator.mediaDevices.getDisplayMedia = original; };
+    return () => {
+      navigator.mediaDevices.getDisplayMedia = original;
+    };
   }, []);
 
   const router = useRouter();
-  const handleOnLeave       = React.useCallback(() => router.push('/salir'), [router]);
-  const handleError         = React.useCallback((error: Error) => {
+  const handleOnLeave = React.useCallback(() => router.push('/salir'), [router]);
+  const handleError = React.useCallback((error: Error) => {
     console.error(error);
     if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') return;
     toast.error(`Error: ${error.message}`);
@@ -429,10 +483,7 @@ function VideoConferenceComponent(props: {
 
         {/* ── Panel de moderación — solo host ── */}
         {isHost && (
-          <ModeratorPanel
-            roomName={props.connectionDetails.roomName}
-            moderation={moderation}
-          />
+          <ModeratorPanel roomName={props.connectionDetails.roomName} moderation={moderation} />
         )}
 
         {/* ── Botón Mejorar imagen — solo host, solo Chrome/Edge
@@ -454,9 +505,7 @@ function VideoConferenceComponent(props: {
                   : 'Activar mejora (nitidez · contraste · brillo · color)'
               }
               style={{
-                background: videoEnhanced
-                  ? 'rgba(201,168,76,0.92)'
-                  : 'rgba(10,10,15,0.85)',
+                background: videoEnhanced ? 'rgba(201,168,76,0.92)' : 'rgba(10,10,15,0.85)',
                 border: `1px solid ${videoEnhanced ? 'rgba(201,168,76,0.7)' : 'rgba(255,255,255,0.18)'}`,
                 borderRadius: '10px',
                 padding: '8px 14px',
@@ -548,30 +597,38 @@ function VideoConferenceComponent(props: {
 
 function RecordingButton({ roomName }: { roomName: string }) {
   const isRecording = useIsRecording();
-  const [loading, setLoading]   = React.useState(false);
-  const [elapsed, setElapsed]   = React.useState(0);
-  const [dotOn, setDotOn]       = React.useState(true);
+  const [loading, setLoading] = React.useState(false);
+  const [elapsed, setElapsed] = React.useState(0);
+  const [dotOn, setDotOn] = React.useState(true);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const dotRef   = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const dotRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   React.useEffect(() => {
     if (isRecording) {
       setElapsed(0);
-      timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
-      dotRef.current   = setInterval(() => setDotOn(v => !v), 700);
+      timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
+      dotRef.current = setInterval(() => setDotOn((v) => !v), 700);
     } else {
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-      if (dotRef.current)   { clearInterval(dotRef.current);   dotRef.current   = null; }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      if (dotRef.current) {
+        clearInterval(dotRef.current);
+        dotRef.current = null;
+      }
       setDotOn(true);
     }
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (dotRef.current)   clearInterval(dotRef.current);
+      if (dotRef.current) clearInterval(dotRef.current);
     };
   }, [isRecording]);
 
   const fmt = (s: number) =>
-    `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+    `${Math.floor(s / 60)
+      .toString()
+      .padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
   const handleClick = async () => {
     setLoading(true);
@@ -614,9 +671,7 @@ function RecordingButton({ roomName }: { roomName: string }) {
         display: 'flex',
         alignItems: 'center',
         gap: '7px',
-        boxShadow: isRecording
-          ? '0 2px 14px rgba(239,68,68,0.4)'
-          : '0 2px 12px rgba(0,0,0,0.45)',
+        boxShadow: isRecording ? '0 2px 14px rgba(239,68,68,0.4)' : '0 2px 12px rgba(0,0,0,0.45)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
         transition: 'all 0.18s ease',
@@ -667,7 +722,11 @@ function InviteDialog({
 
   const handle = async (accepted: boolean) => {
     setBusy(true);
-    try { await onDismiss(accepted); } finally { setBusy(false); }
+    try {
+      await onDismiss(accepted);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -694,9 +753,7 @@ function InviteDialog({
           textAlign: 'center',
         }}
       >
-        <div style={{ fontSize: '36px', marginBottom: '12px' }}>
-          {isSpeak ? '🎙️' : '📷'}
-        </div>
+        <div style={{ fontSize: '36px', marginBottom: '12px' }}>{isSpeak ? '🎙️' : '📷'}</div>
         <h3 style={{ color: '#fff', fontSize: '15px', fontWeight: 700, margin: '0 0 8px' }}>
           {isSpeak
             ? 'El anfitrión te invita a activar tu micrófono'

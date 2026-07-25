@@ -21,7 +21,7 @@ import { RoomServiceClient } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyRoomPass, roomPassEnforced } from '@/lib/roomPass';
 
-const API_KEY    = process.env.LIVEKIT_API_KEY!;
+const API_KEY = process.env.LIVEKIT_API_KEY!;
 const API_SECRET = process.env.LIVEKIT_API_SECRET!;
 const LIVEKIT_URL = process.env.LIVEKIT_URL!;
 
@@ -40,7 +40,7 @@ interface RequestBody {
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    const body = await req.json() as RequestBody;
+    const body = (await req.json()) as RequestBody;
     const { action, roomName, identity, pass } = body;
 
     if (!roomName) {
@@ -61,10 +61,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         if (!identity) return new NextResponse('Missing identity', { status: 400 });
         const participant = await svc.getParticipant(roomName, identity);
         const audioTracks = participant.tracks.filter(
-          t => Number(t.type) === 0 && !t.muted // 0 = AUDIO
+          (t) => Number(t.type) === 0 && !t.muted, // 0 = AUDIO
         );
         await Promise.all(
-          audioTracks.map(t => svc.mutePublishedTrack(roomName, identity, t.sid, true))
+          audioTracks.map((t) => svc.mutePublishedTrack(roomName, identity, t.sid, true)),
         );
         return new NextResponse(null, { status: 200 });
       }
@@ -72,11 +72,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       case 'muteAll': {
         const participants = await svc.listParticipants(roomName);
         await Promise.all(
-          participants.flatMap(p =>
+          participants.flatMap((p) =>
             p.tracks
-              .filter(t => Number(t.type) === 0 && !t.muted)
-              .map(t => svc.mutePublishedTrack(roomName, p.identity, t.sid, true).catch(() => {}))
-          )
+              .filter((t) => Number(t.type) === 0 && !t.muted)
+              .map((t) =>
+                svc.mutePublishedTrack(roomName, p.identity, t.sid, true).catch(() => {}),
+              ),
+          ),
         );
         return new NextResponse(null, { status: 200 });
       }
@@ -85,10 +87,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         if (!identity) return new NextResponse('Missing identity', { status: 400 });
         const participant = await svc.getParticipant(roomName, identity);
         const videoTracks = participant.tracks.filter(
-          t => Number(t.type) === 1 && !t.muted // 1 = VIDEO
+          (t) => Number(t.type) === 1 && !t.muted, // 1 = VIDEO
         );
         await Promise.all(
-          videoTracks.map(t => svc.mutePublishedTrack(roomName, identity, t.sid, true))
+          videoTracks.map((t) => svc.mutePublishedTrack(roomName, identity, t.sid, true)),
         );
         return new NextResponse(null, { status: 200 });
       }
@@ -96,11 +98,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       case 'disableAllCameras': {
         const participants = await svc.listParticipants(roomName);
         await Promise.all(
-          participants.flatMap(p =>
+          participants.flatMap((p) =>
             p.tracks
-              .filter(t => Number(t.type) === 1 && !t.muted)
-              .map(t => svc.mutePublishedTrack(roomName, p.identity, t.sid, true).catch(() => {}))
-          )
+              .filter((t) => Number(t.type) === 1 && !t.muted)
+              .map((t) =>
+                svc.mutePublishedTrack(roomName, p.identity, t.sid, true).catch(() => {}),
+              ),
+          ),
         );
         return new NextResponse(null, { status: 200 });
       }
