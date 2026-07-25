@@ -8,6 +8,7 @@ import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { ConnectionDetails } from '@/lib/types';
 import { LocalUserChoices, PreJoin, RoomContext, useIsRecording } from '@livekit/components-react';
 import { ModeratorPanel } from './ModeratorPanel';
+import type { IntroConfig } from './FenixRoomLayout';
 import { FenixRoomLayout } from './FenixRoomLayout';
 import {
   ExternalE2EEKeyProvider,
@@ -46,6 +47,10 @@ export function PageClientImpl(props: {
   name?: string;
   micDefault?: boolean;
   camDefault?: boolean;
+  /** Cortinilla de apertura. Ausente = la sala abre directo a las cámaras. */
+  intro?: IntroConfig | null;
+  /** Las sesiones de la Academia se graban solas en cuanto llega el anfitrión. */
+  autoRecord?: boolean;
 }) {
   const [preJoinChoices, setPreJoinChoices] = React.useState<LocalUserChoices | undefined>(
     undefined,
@@ -153,6 +158,8 @@ export function PageClientImpl(props: {
             singlePeerConnection: props.singlePeerConnection,
           }}
           role={connectionDetails.isHost ? 'host' : 'attendee'}
+          intro={props.intro}
+          autoRecord={props.autoRecord}
         />
       )}
     </main>
@@ -166,6 +173,8 @@ function VideoConferenceComponent(props: {
   connectionDetails: ConnectionDetails;
   options: { hq: boolean; codec: VideoCodec; singlePeerConnection: boolean };
   role: string;
+  intro?: IntroConfig | null;
+  autoRecord?: boolean;
 }) {
   const isHost = props.role === 'host';
 
@@ -479,7 +488,7 @@ function VideoConferenceComponent(props: {
         <KeyboardShortcuts />
 
         {/* ── Layout principal: hablante activo, galería, pantalla compartida ── */}
-        <FenixRoomLayout isHost={isHost} />
+        <FenixRoomLayout isHost={isHost} intro={props.intro} />
 
         {/* ── Panel de moderación — solo host ── */}
         {isHost && (
@@ -548,7 +557,10 @@ function VideoConferenceComponent(props: {
               zIndex: 9997,
             }}
           >
-            <RecordingButton roomName={props.connectionDetails.roomName} />
+            <RecordingButton
+              roomName={props.connectionDetails.roomName}
+              autoStart={props.autoRecord}
+            />
           </div>
         )}
 
@@ -586,7 +598,9 @@ function VideoConferenceComponent(props: {
         )}
 
         <DebugMode />
-        <RecordingIndicator />
+        {/* El punto rojo es para quien no tiene el botón: el anfitrión ya ve
+            su propio botón parpadeando con el cronómetro. */}
+        <RecordingIndicator showDot={!isHost} />
       </RoomContext.Provider>
     </div>
   );
@@ -595,7 +609,7 @@ function VideoConferenceComponent(props: {
 // ── RecordingButton ───────────────────────────────────────────────────────────
 // Debe estar dentro de RoomContext.Provider para usar useIsRecording
 
-function RecordingButton({ roomName }: { roomName: string }) {
+function RecordingButton({ roomName, autoStart }: { roomName: string; autoStart?: boolean }) {
   const isRecording = useIsRecording();
   const [loading, setLoading] = React.useState(false);
   const [elapsed, setElapsed] = React.useState(0);
@@ -630,28 +644,67 @@ function RecordingButton({ roomName }: { roomName: string }) {
       .toString()
       .padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
-  const handleClick = async () => {
-    setLoading(true);
-    try {
-      const endpoint = isRecording ? '/api/record/stop' : '/api/record/start';
+  const llamar = React.useCallback(
+    async (accion: 'start' | 'stop', silencioso = false) => {
       // Grabar es una acción de anfitrión: va firmada con el mismo pase.
       const pass = new URLSearchParams(window.location.search).get('pass');
       const res = await fetch(
-        `${endpoint}?roomName=${encodeURIComponent(roomName)}` +
+        `/api/record/${accion}?roomName=${encodeURIComponent(roomName)}` +
           (pass ? `&pass=${encodeURIComponent(pass)}` : ''),
       );
+      // 409 al arrancar = ya estaba grabando. Para el arranque automático eso
+      // no es un fallo, es el resultado deseado por otro camino.
       if (res.status === 409) {
-        toast('Ya hay una grabación activa', { duration: 3000 });
-      } else if (!res.ok) {
-        const txt = await res.text().catch(() => res.statusText);
-        toast.error(`Error de grabación: ${txt}`, { duration: 6000 });
+        if (!silencioso) toast('Ya hay una grabación activa', { duration: 3000 });
+        return;
       }
+      if (!res.ok) {
+        const txt = await res.text().catch(() => res.statusText);
+        throw new Error(txt);
+      }
+    },
+    [roomName],
+  );
+
+  const handleClick = async () => {
+    setLoading(true);
+    try {
+      await llamar(isRecording ? 'stop' : 'start');
     } catch (e) {
-      toast.error('No se pudo conectar con el servidor de grabación');
+      const msg = e instanceof Error ? e.message : 'No se pudo conectar con el servidor';
+      toast.error(`Error de grabación: ${msg}`, { duration: 6000 });
     } finally {
       setLoading(false);
     }
   };
+
+  // ── Arranque automático ───────────────────────────────────────────────────
+  //
+  // Las clases de la Academia se graban siempre, y "siempre" no puede depender
+  // de que el anfitrión se acuerde de picarle a un botón antes de empezar a
+  // hablar. En cuanto entra, la grabación arranca sola.
+  //
+  // El retraso no es superstición: al montar, `isRecording` todavía es `false`
+  // aunque la sala ya lleve rato grabando, porque el estado viene del servidor.
+  // Arrancar de inmediato pediría una grabación que ya existe. Dos segundos
+  // bastan para que el estado real llegue; y si aun así se cruza, el 409 lo
+  // resuelve sin molestar a nadie.
+  const yaIntentado = React.useRef(false);
+  React.useEffect(() => {
+    if (!autoStart || yaIntentado.current) return;
+    const id = setTimeout(async () => {
+      if (yaIntentado.current) return;
+      yaIntentado.current = true;
+      if (isRecording) return;
+      try {
+        await llamar('start', true);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'error desconocido';
+        toast.error(`No se pudo iniciar la grabación automática: ${msg}`, { duration: 8000 });
+      }
+    }, 2000);
+    return () => clearTimeout(id);
+  }, [autoStart, isRecording, llamar]);
 
   return (
     <button

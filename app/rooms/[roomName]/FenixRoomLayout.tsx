@@ -22,14 +22,24 @@ import {
   TrackReferenceOrPlaceholder,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
+import { IntroStage } from './IntroStage';
+import type { IntroRef } from '@/lib/vimeoIntro';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
 type LayoutMode = 'stage' | 'gallery';
 const SPEAKER_DEBOUNCE_MS = 1500;
 
+export interface IntroConfig {
+  ref: IntroRef;
+  startedAtMs: number;
+  durationSec: number;
+}
+
 interface FenixRoomLayoutProps {
   isHost: boolean;
+  /** Cortinilla de apertura. Ausente = la sala abre directo a las cámaras. */
+  intro?: IntroConfig | null;
 }
 
 function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
@@ -38,11 +48,23 @@ function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
-export function FenixRoomLayout({ isHost }: FenixRoomLayoutProps) {
+export function FenixRoomLayout({ isHost, intro }: FenixRoomLayoutProps) {
   const [mode, setMode] = React.useState<LayoutMode>('stage');
   const [chatOpen, setChatOpen] = React.useState(false);
   const [pinnedId, setPinnedId] = React.useState<string | null>(null);
   const [mainIdentity, setMainIdentity] = React.useState<string | null>(null);
+
+  // ── Intro ─────────────────────────────────────────────────────────────────
+  // Solo cuenta si todavía le queda tiempo. Quien entre cuando la cortinilla
+  // ya pasó entra a la sesión, no a un video terminado.
+  const introVigente = React.useMemo(() => {
+    if (!intro) return false;
+    const transcurrido = (Date.now() - intro.startedAtMs) / 1000;
+    return transcurrido < intro.durationSec;
+  }, [intro]);
+
+  const [introCorriendo, setIntroCorriendo] = React.useState(introVigente);
+  React.useEffect(() => setIntroCorriendo(introVigente), [introVigente]);
 
   // ── Tracks ────────────────────────────────────────────────────────────────
   const allTrackRefs = useTracks(
@@ -134,10 +156,34 @@ export function FenixRoomLayout({ isHost }: FenixRoomLayoutProps) {
   // ── Tracks para el overlay de miniaturas ──────────────────────────────────
   // Todos excepto el que está en el escenario principal
   const thumbTrackRefs = React.useMemo((): TrackReferenceOrPlaceholder[] => {
+    // Durante la intro el escenario lo ocupa el video, así que nadie está
+    // "en el escenario": todos van apareciendo en las miniaturas conforme
+    // entran. Eso es justo lo que queremos que se vea — la sala llenándose.
+    if (introCorriendo) return cameraRefs;
     const mainId = mainTrackRef ? trackIdentity(mainTrackRef) : null;
     if (screenRefs.length > 0) return cameraRefs; // pantalla compartida → todas las cámaras en thumbs
     return cameraRefs.filter((ref) => trackIdentity(ref) !== mainId);
-  }, [cameraRefs, screenRefs, mainTrackRef]);
+  }, [cameraRefs, screenRefs, mainTrackRef, introCorriendo]);
+
+  // ── Al terminar la intro, el escenario es del anfitrión ───────────────────
+  // Sin esto, si alguien tosió durante la cortinilla se quedaría él en el
+  // escenario cuando el video acabe. Limpiamos pin y hablante para que la
+  // prioridad caiga sola en el host, que es el paso 4 de la lista de arriba.
+  const introCorriaAntes = React.useRef(introCorriendo);
+  React.useEffect(() => {
+    if (introCorriaAntes.current && !introCorriendo) {
+      setPinnedId(null);
+      setDebouncedSpeakerId(null);
+      setMode('stage');
+    }
+    introCorriaAntes.current = introCorriendo;
+  }, [introCorriendo]);
+
+  // Mientras corre la cortinilla la vista es siempre escenario: la galería
+  // no tiene dónde poner un video que no es de nadie.
+  React.useEffect(() => {
+    if (introCorriendo) setMode('stage');
+  }, [introCorriendo]);
 
   // ── Galería: columnas según participantes ─────────────────────────────────
   const galleryCount = cameraRefs.length;
@@ -190,12 +236,16 @@ export function FenixRoomLayout({ isHost }: FenixRoomLayoutProps) {
           flexWrap: 'wrap',
         }}
       >
-        <LayoutToggleButton
-          label={mode === 'stage' ? '⊞ Galería' : '◩ Escenario'}
-          title={mode === 'stage' ? 'Vista de galería' : 'Vista de escenario'}
-          onClick={() => setMode((m) => (m === 'stage' ? 'gallery' : 'stage'))}
-          active={false}
-        />
+        {/* Durante la cortinilla no hay galería que ofrecer: el escenario lo
+            ocupa un video que no pertenece a ningún participante. */}
+        {!introCorriendo && (
+          <LayoutToggleButton
+            label={mode === 'stage' ? '⊞ Galería' : '◩ Escenario'}
+            title={mode === 'stage' ? 'Vista de galería' : 'Vista de escenario'}
+            onClick={() => setMode((m) => (m === 'stage' ? 'gallery' : 'stage'))}
+            active={false}
+          />
+        )}
 
         {isHost && pinnedId && (
           <LayoutToggleButton
@@ -245,8 +295,15 @@ export function FenixRoomLayout({ isHost }: FenixRoomLayoutProps) {
           {mode === 'stage' ? (
             /* ── MODO ESCENARIO ── */
             <div style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}>
-              {/* Video principal */}
-              {mainTrackRef ? (
+              {/* Video principal — la cortinilla manda mientras dure */}
+              {introCorriendo && intro ? (
+                <IntroStage
+                  introRef={intro.ref}
+                  startedAtMs={intro.startedAtMs}
+                  durationSec={intro.durationSec}
+                  onEnded={() => setIntroCorriendo(false)}
+                />
+              ) : mainTrackRef ? (
                 <ParticipantTile
                   trackRef={mainTrackRef}
                   disableSpeakingIndicator={false}
