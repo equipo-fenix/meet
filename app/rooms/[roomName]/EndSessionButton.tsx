@@ -62,30 +62,43 @@ export function EndSessionButton({ roomName, pass }: EndSessionButtonProps) {
 
   if (confirmando) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '5px 8px',
+          borderRadius: '10px',
+          background: 'rgba(239,68,68,0.1)',
+          border: '1px solid rgba(239,68,68,0.3)',
+        }}
+      >
         <span
           style={{
-            fontSize: '12px',
+            fontSize: '11.5px',
             fontWeight: 700,
-            color: 'rgba(255,255,255,0.75)',
+            color: 'rgba(255,255,255,0.8)',
             whiteSpace: 'nowrap',
           }}
         >
           ¿Terminar para todos?
         </span>
         <button
-          className="lk-button lk-disconnect-button"
           onClick={() => void terminar()}
           disabled={cerrando}
-          style={{ whiteSpace: 'nowrap', opacity: cerrando ? 0.6 : 1 }}
+          style={{
+            ...respuesta,
+            background: '#ef4444',
+            color: '#fff',
+            opacity: cerrando ? 0.6 : 1,
+          }}
         >
           {cerrando ? 'Terminando…' : 'Sí'}
         </button>
         <button
-          className="lk-button"
           onClick={() => setConfirmando(false)}
           disabled={cerrando}
-          style={{ whiteSpace: 'nowrap' }}
+          style={{ ...respuesta, background: 'rgba(255,255,255,0.1)', color: '#fff' }}
         >
           No
         </button>
@@ -95,12 +108,39 @@ export function EndSessionButton({ roomName, pass }: EndSessionButtonProps) {
 
   return (
     <button
-      className="lk-button lk-disconnect-button"
       onClick={() => setConfirmando(true)}
       title="Termina la sesión para todos y cierra la grabación"
-      style={{ whiteSpace: 'nowrap' }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '3px',
+        minWidth: '62px',
+        padding: '6px 12px',
+        borderRadius: '10px',
+        border: '1px solid rgba(239,68,68,0.4)',
+        background: 'rgba(239,68,68,0.14)',
+        color: '#f87171',
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        fontFamily: 'inherit',
+      }}
     >
-      Terminar sesión
+      <span style={{ fontSize: '19px', lineHeight: 1 }}>⏻</span>
+      <span className="fenix-dock-label" style={{ fontSize: '10.5px', fontWeight: 700 }}>
+        Terminar
+      </span>
     </button>
   );
 }
+
+const respuesta: React.CSSProperties = {
+  padding: '5px 11px',
+  borderRadius: '7px',
+  border: 'none',
+  fontSize: '11.5px',
+  fontWeight: 700,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+  fontFamily: 'inherit',
+};

@@ -7,10 +7,11 @@ import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { ConnectionDetails } from '@/lib/types';
 import { LocalUserChoices, PreJoin, RoomContext, useIsRecording } from '@livekit/components-react';
-import { ModeratorPanel } from './ModeratorPanel';
 import { LobbyBar } from './LobbyBar';
 import type { IntroConfig } from './FenixRoomLayout';
 import { FenixRoomLayout } from './FenixRoomLayout';
+import type { HostTool } from './ControlDock';
+import type { ModerationState } from '@/lib/useRoomModeration';
 import {
   ExternalE2EEKeyProvider,
   LocalTrackPublication,
@@ -496,92 +497,36 @@ function VideoConferenceComponent(props: {
       <RoomContext.Provider value={room}>
         <KeyboardShortcuts />
 
-        {/* ── Layout principal: hablante activo, galería, pantalla compartida ── */}
-        <FenixRoomLayout
+        {/* ── La sala entera: escenario, paneles y barra de abajo ──
+            Va en su propio componente porque la grabación necesita leer el
+            estado desde dentro del contexto de LiveKit, y eso no se puede
+            hacer aquí, que es justo donde se crea el contexto. */}
+        <SalaFenix
           isHost={isHost}
           intro={props.intro}
           roomName={props.connectionDetails.roomName}
           pass={pass}
+          moderation={moderation}
+          autoRecord={props.autoRecord}
+          mejora={
+            isHost && isVideoEnhanceSupported()
+              ? {
+                  id: 'mejora',
+                  icon: '✨',
+                  label: videoEnhanced ? 'Mejora de imagen activa' : 'Mejorar imagen',
+                  detail:
+                    videoEnhanced && enhanceMs !== null ? `${enhanceMs.toFixed(1)}ms` : undefined,
+                  active: videoEnhanced,
+                  onClick: () => void toggleVideoEnhancement(),
+                }
+              : null
+          }
         />
-
-        {/* ── Panel de moderación — solo host ── */}
-        {isHost && (
-          <ModeratorPanel roomName={props.connectionDetails.roomName} moderation={moderation} />
-        )}
 
         {/* ── Quién espera fuera — solo host.
             El nombre de la sala es el id de la sesión en APEX: por eso la
             puerta se puede consultar sin llevar el dato por separado. ── */}
         {isHost && pass && <LobbyBar sessionId={props.connectionDetails.roomName} pass={pass} />}
-
-        {/* ── Botón Mejorar imagen — solo host, solo Chrome/Edge
-            Posición: bottom 140px (encima del ModeratorPanel: 80 + 48 + 12 = 140) ── */}
-        {isHost && isVideoEnhanceSupported() && (
-          <div
-            style={{
-              position: 'fixed',
-              bottom: '140px',
-              right: '16px',
-              zIndex: 9998,
-            }}
-          >
-            <button
-              onClick={toggleVideoEnhancement}
-              title={
-                videoEnhanced
-                  ? 'Desactivar mejora de imagen'
-                  : 'Activar mejora (nitidez · contraste · brillo · color)'
-              }
-              style={{
-                background: videoEnhanced ? 'rgba(201,168,76,0.92)' : 'rgba(10,10,15,0.85)',
-                border: `1px solid ${videoEnhanced ? 'rgba(201,168,76,0.7)' : 'rgba(255,255,255,0.18)'}`,
-                borderRadius: '10px',
-                padding: '8px 14px',
-                color: videoEnhanced ? '#0a0a0f' : '#ffffff',
-                fontSize: '12px',
-                fontWeight: 700,
-                letterSpacing: '0.02em',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                boxShadow: videoEnhanced
-                  ? '0 2px 14px rgba(201,168,76,0.35)'
-                  : '0 2px 12px rgba(0,0,0,0.45)',
-                transition: 'all 0.18s ease',
-                backdropFilter: 'blur(8px)',
-                WebkitBackdropFilter: 'blur(8px)',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <span style={{ fontSize: '14px' }}>✨</span>
-              <span>{videoEnhanced ? 'Mejora activa' : 'Mejorar imagen'}</span>
-              {videoEnhanced && enhanceMs !== null && (
-                <span style={{ opacity: 0.65, fontSize: '10px', fontWeight: 400 }}>
-                  {enhanceMs.toFixed(1)}ms
-                </span>
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* ── Botón de grabación — solo host
-            Posición: bottom 200px (encima de Mejorar imagen: 140 + 48 + 12 = 200) ── */}
-        {isHost && (
-          <div
-            style={{
-              position: 'fixed',
-              bottom: '200px',
-              right: '16px',
-              zIndex: 9997,
-            }}
-          >
-            <RecordingButton
-              roomName={props.connectionDetails.roomName}
-              autoStart={props.autoRecord}
-            />
-          </div>
-        )}
 
         {/* ── Diálogo de invitación del host (participante) ── */}
         <InviteDialog
@@ -617,51 +562,94 @@ function VideoConferenceComponent(props: {
         )}
 
         <DebugMode />
-        {/* El punto rojo es para quien no tiene el botón: el anfitrión ya ve
-            su propio botón parpadeando con el cronómetro. */}
-        <RecordingIndicator showDot={!isHost} />
+        {/* El punto rojo lo ve todo el mundo, anfitrión incluido: su control de
+            grabación vive ahora dentro del menú "Más", así que si no hubiera
+            punto tendría que abrir un menú para saber si está grabando. */}
+        <RecordingIndicator />
       </RoomContext.Provider>
     </div>
   );
 }
 
-// ── RecordingButton ───────────────────────────────────────────────────────────
-// Debe estar dentro de RoomContext.Provider para usar useIsRecording
+// ── SalaFenix ─────────────────────────────────────────────────────────────────
+//
+// La sala entera. Existe como componente aparte por una razón concreta: la
+// grabación necesita `useIsRecording`, que lee del contexto de LiveKit, y ese
+// contexto se crea justo en `VideoConferenceComponent`. Un hook no puede leer
+// un contexto que su propio componente está creando, así que hace falta bajar
+// un nivel.
 
-function RecordingButton({ roomName, autoStart }: { roomName: string; autoStart?: boolean }) {
+function SalaFenix({
+  isHost,
+  intro,
+  roomName,
+  pass,
+  moderation,
+  autoRecord,
+  mejora,
+}: {
+  isHost: boolean;
+  intro?: IntroConfig | null;
+  roomName: string;
+  pass: string | null;
+  moderation: ModerationState;
+  autoRecord?: boolean;
+  mejora: HostTool | null;
+}) {
+  const grabacion = useRecordingTool(roomName, isHost && !!autoRecord);
+
+  // El orden importa: lo que se usa cada clase arriba, lo opcional debajo.
+  const herramientas = React.useMemo<HostTool[]>(
+    () => (isHost ? [grabacion, ...(mejora ? [mejora] : [])] : []),
+    [isHost, grabacion, mejora],
+  );
+
+  return (
+    <FenixRoomLayout
+      isHost={isHost}
+      intro={intro}
+      roomName={roomName}
+      pass={pass}
+      moderation={moderation}
+      hostTools={herramientas}
+    />
+  );
+}
+
+// ── useRecordingTool ──────────────────────────────────────────────────────────
+//
+// Antes era un botón flotante encima del vídeo. Ahora es una entrada del menú
+// del anfitrión, así que lo que era pintura pasa a ser dato: el cronómetro sale
+// por `detail` y el rojo de "grabando" por `active`. La lógica —el 409, el
+// arranque automático con su retraso— no se ha tocado: es la parte que ya
+// estaba probada en producción.
+//
+// Debe llamarse dentro de RoomContext.Provider para poder usar useIsRecording.
+
+/** Segundos a mm:ss. */
+const fmt = (s: number) =>
+  `${Math.floor(s / 60)
+    .toString()
+    .padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+
+function useRecordingTool(roomName: string, autoStart?: boolean): HostTool {
   const isRecording = useIsRecording();
   const [loading, setLoading] = React.useState(false);
   const [elapsed, setElapsed] = React.useState(0);
-  const [dotOn, setDotOn] = React.useState(true);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const dotRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   React.useEffect(() => {
     if (isRecording) {
       setElapsed(0);
       timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
-      dotRef.current = setInterval(() => setDotOn((v) => !v), 700);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      if (dotRef.current) {
-        clearInterval(dotRef.current);
-        dotRef.current = null;
-      }
-      setDotOn(true);
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     }
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (dotRef.current) clearInterval(dotRef.current);
     };
   }, [isRecording]);
-
-  const fmt = (s: number) =>
-    `${Math.floor(s / 60)
-      .toString()
-      .padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
   const llamar = React.useCallback(
     async (accion: 'start' | 'stop', silencioso = false) => {
@@ -685,7 +673,7 @@ function RecordingButton({ roomName, autoStart }: { roomName: string; autoStart?
     [roomName],
   );
 
-  const handleClick = async () => {
+  const handleClick = React.useCallback(async () => {
     setLoading(true);
     try {
       await llamar(isRecording ? 'stop' : 'start');
@@ -695,7 +683,7 @@ function RecordingButton({ roomName, autoStart }: { roomName: string; autoStart?
     } finally {
       setLoading(false);
     }
-  };
+  }, [llamar, isRecording]);
 
   // ── Arranque automático ───────────────────────────────────────────────────
   //
@@ -725,56 +713,17 @@ function RecordingButton({ roomName, autoStart }: { roomName: string; autoStart?
     return () => clearTimeout(id);
   }, [autoStart, isRecording, llamar]);
 
-  return (
-    <button
-      onClick={handleClick}
-      disabled={loading}
-      title={isRecording ? 'Detener grabación' : 'Iniciar grabación de la sesión'}
-      style={{
-        background: isRecording ? 'rgba(239,68,68,0.9)' : 'rgba(10,10,15,0.85)',
-        border: `1px solid ${isRecording ? 'rgba(239,68,68,0.7)' : 'rgba(255,255,255,0.18)'}`,
-        borderRadius: '10px',
-        padding: '8px 14px',
-        color: '#ffffff',
-        fontSize: '12px',
-        fontWeight: 700,
-        letterSpacing: '0.02em',
-        cursor: loading ? 'wait' : 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '7px',
-        boxShadow: isRecording ? '0 2px 14px rgba(239,68,68,0.4)' : '0 2px 12px rgba(0,0,0,0.45)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-        transition: 'all 0.18s ease',
-        whiteSpace: 'nowrap',
-        opacity: loading ? 0.7 : 1,
-      }}
-    >
-      {isRecording ? (
-        <>
-          <span
-            style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              background: '#fff',
-              display: 'inline-block',
-              opacity: dotOn ? 1 : 0.25,
-              transition: 'opacity 0.2s',
-              flexShrink: 0,
-            }}
-          />
-          <span>{fmt(elapsed)}</span>
-          <span>⏹ Detener</span>
-        </>
-      ) : (
-        <>
-          <span style={{ fontSize: '14px' }}>🎥</span>
-          <span>Iniciar grabación</span>
-        </>
-      )}
-    </button>
+  return React.useMemo<HostTool>(
+    () => ({
+      id: 'grabacion',
+      icon: isRecording ? '⏹' : '🎥',
+      label: isRecording ? 'Detener grabación' : 'Iniciar grabación',
+      detail: isRecording ? fmt(elapsed) : undefined,
+      active: isRecording,
+      disabled: loading,
+      onClick: () => void handleClick(),
+    }),
+    [isRecording, elapsed, loading, handleClick],
   );
 }
 
