@@ -129,9 +129,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
         try {
           const egress = new EgressClient(httpOrigin(), API_KEY, API_SECRET);
-          const activas = (await egress.listEgress({ roomName })).filter(
-            (info) => info.status < 2,
-          );
+          const activas = (await egress.listEgress({ roomName })).filter((info) => info.status < 2);
           await Promise.all(
             activas.map((info) =>
               egress.stopEgress(info.egressId).catch((e) => {
