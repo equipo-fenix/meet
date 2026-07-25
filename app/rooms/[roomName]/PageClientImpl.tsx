@@ -92,6 +92,26 @@ export function PageClientImpl(props: {
 
   const handlePreJoinError = React.useCallback((e: Error) => console.error(e), []);
 
+  // ── Entrar sin que nos pregunten quiénes somos ─────────────────────────────
+  // Si llegamos con pase, la antesala ya resolvió las dos únicas cosas que
+  // preguntaba esta pantalla: quién eres y si quieres micro y cámara. Volver a
+  // preguntarlo es hacer dos veces un trámite que ya está hecho — y a un alumno
+  // que abrió la sesión desde su agenda le pedimos que teclee su propio nombre.
+  //
+  // Solo se salta con pase Y con nombre. Quien llega por su cuenta sigue viendo
+  // la pantalla de siempre (y la puerta le dirá que no, que para eso está).
+  const autoJoinedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (autoJoinedRef.current) return;
+    if (!props.pass || !props.name?.trim()) return;
+    autoJoinedRef.current = true;
+    handlePreJoinSubmit({
+      username: props.name.trim(),
+      videoEnabled: props.camDefault ?? false,
+      audioEnabled: props.micDefault ?? false,
+    } as LocalUserChoices);
+  }, [props.pass, props.name, props.camDefault, props.micDefault, handlePreJoinSubmit]);
+
   return (
     <main data-lk-theme="default" style={{ height: '100%' }}>
       {connectionDetails === undefined || preJoinChoices === undefined ? (
