@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { PageClientImpl } from './PageClientImpl';
+import { ClientOnlyRoom } from './ClientOnlyRoom';
 import { isVideoCodec } from '@/lib/types';
 
 export default async function Page({
@@ -35,7 +35,7 @@ export default async function Page({
   const role = _searchParams.role === 'host' ? 'host' : 'attendee';
 
   return (
-    <PageClientImpl
+    <ClientOnlyRoom
       roomName={_params.roomName}
       region={_searchParams.region}
       hq={hq}
