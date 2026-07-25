@@ -9,8 +9,6 @@ import {
 import { BackgroundBlur, VirtualBackground } from '@livekit/track-processors';
 import { isLocalTrack, LocalTrackPublication, Track } from 'livekit-client';
 
-
-
 // Background image paths
 const BACKGROUND_IMAGES: { name: string; path: { src: string } }[] = [];
 

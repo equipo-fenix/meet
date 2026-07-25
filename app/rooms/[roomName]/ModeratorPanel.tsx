@@ -98,22 +98,26 @@ function ConfirmBanner({
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
-  const [open, setOpen]             = React.useState(false);
-  const [confirmMuteAll, setConfirmMuteAll]   = React.useState(false);
-  const [confirmCamOff, setConfirmCamOff]     = React.useState(false);
-  const [busy, setBusy]             = React.useState<string | null>(null);
+  const [open, setOpen] = React.useState(false);
+  const [confirmMuteAll, setConfirmMuteAll] = React.useState(false);
+  const [confirmCamOff, setConfirmCamOff] = React.useState(false);
+  const [busy, setBusy] = React.useState<string | null>(null);
 
-  const participants    = useParticipants();
+  const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
   const { raisedHands, actions } = moderation;
-  const handIds = new Set(raisedHands.map(h => h.identity));
+  const handIds = new Set(raisedHands.map((h) => h.identity));
 
   // ── Manejadores con loading guard ─────────────────────────────────────────
 
   const withBusy = (key: string, fn: () => Promise<void>) => async () => {
     if (busy) return;
     setBusy(key);
-    try { await fn(); } finally { setBusy(null); }
+    try {
+      await fn();
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
@@ -128,15 +132,13 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
     >
       {/* ── Botón toggle ── */}
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         title="Panel de participantes"
         style={{
           width: '48px',
           height: '48px',
           borderRadius: '50%',
-          background: open
-            ? 'linear-gradient(135deg, #C9A84C, #a07830)'
-            : 'rgba(201,168,76,0.15)',
+          background: open ? 'linear-gradient(135deg, #C9A84C, #a07830)' : 'rgba(201,168,76,0.15)',
           border: '1px solid rgba(201,168,76,0.4)',
           color: open ? '#0a0a0f' : '#C9A84C',
           fontSize: '20px',
@@ -235,14 +237,20 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
             </p>
             <div style={{ display: 'flex', gap: '5px' }}>
               <button
-                onClick={() => { setConfirmCamOff(true); setConfirmMuteAll(false); }}
+                onClick={() => {
+                  setConfirmCamOff(true);
+                  setConfirmMuteAll(false);
+                }}
                 style={globalBtn('#60a5fa')}
                 title="Apagar todas las cámaras"
               >
                 📷 Cámaras
               </button>
               <button
-                onClick={() => { setConfirmMuteAll(true); setConfirmCamOff(false); }}
+                onClick={() => {
+                  setConfirmMuteAll(true);
+                  setConfirmCamOff(false);
+                }}
                 style={globalBtn('#f87171')}
                 title="Silenciar a todos"
               >
@@ -255,14 +263,20 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
           {confirmMuteAll && (
             <ConfirmBanner
               msg="¿Silenciar todos los micrófonos?"
-              onConfirm={() => { setConfirmMuteAll(false); actions.muteAll(roomName); }}
+              onConfirm={() => {
+                setConfirmMuteAll(false);
+                actions.muteAll(roomName);
+              }}
               onCancel={() => setConfirmMuteAll(false)}
             />
           )}
           {confirmCamOff && (
             <ConfirmBanner
               msg="¿Apagar todas las cámaras?"
-              onConfirm={() => { setConfirmCamOff(false); actions.disableAllCameras(roomName); }}
+              onConfirm={() => {
+                setConfirmCamOff(false);
+                actions.disableAllCameras(roomName);
+              }}
               onCancel={() => setConfirmCamOff(false)}
             />
           )}
@@ -282,7 +296,7 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
               >
                 ✋ Solicitudes para hablar
               </p>
-              {raisedHands.map(h => (
+              {raisedHands.map((h) => (
                 <div
                   key={h.identity}
                   style={{
@@ -300,7 +314,9 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
                     {h.name}
                   </span>
                   <button
-                    onClick={withBusy(`invite-${h.identity}`, () => actions.inviteToSpeak(h.identity))}
+                    onClick={withBusy(`invite-${h.identity}`, () =>
+                      actions.inviteToSpeak(h.identity),
+                    )}
                     disabled={busy === `invite-${h.identity}`}
                     style={actionBtn('#16a34a', busy === `invite-${h.identity}`)}
                   >
@@ -313,17 +329,19 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
 
           {/* Lista de participantes */}
           <div style={{ overflowY: 'auto', flex: 1 }}>
-            {participants.map(p => {
+            {participants.map((p) => {
               const isLocal = p.identity === localParticipant.identity;
               let isParticipantHost = false;
               try {
                 const meta = JSON.parse(p.metadata || '{}');
                 isParticipantHost = meta.isHost === true;
-              } catch { /* empty */ }
+              } catch {
+                /* empty */
+              }
 
-              const micOn  = p.isMicrophoneEnabled;
-              const camOn  = p.isCameraEnabled;
-              const hand   = handIds.has(p.identity);
+              const micOn = p.isMicrophoneEnabled;
+              const camOn = p.isCameraEnabled;
+              const hand = handIds.has(p.identity);
               const nameStr = p.name || p.identity || '?';
 
               return (
@@ -333,16 +351,21 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
                     padding: '9px 10px',
                     borderRadius: '10px',
                     marginBottom: '5px',
-                    background: isLocal
-                      ? 'rgba(201,168,76,0.06)'
-                      : 'rgba(255,255,255,0.03)',
+                    background: isLocal ? 'rgba(201,168,76,0.06)' : 'rgba(255,255,255,0.03)',
                     border: isLocal
                       ? '1px solid rgba(201,168,76,0.14)'
                       : '1px solid rgba(255,255,255,0.06)',
                   }}
                 >
                   {/* Fila superior: avatar + nombre + estado */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: isLocal ? 0 : '7px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      marginBottom: isLocal ? 0 : '7px',
+                    }}
+                  >
                     {/* Avatar */}
                     <div
                       style={{
@@ -350,9 +373,7 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
                         height: '30px',
                         borderRadius: '50%',
                         flexShrink: 0,
-                        background: isLocal
-                          ? 'rgba(201,168,76,0.2)'
-                          : 'rgba(255,255,255,0.08)',
+                        background: isLocal ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.08)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -425,7 +446,7 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
                       {micOn ? (
                         <button
                           onClick={withBusy(`mute-${p.identity}`, () =>
-                            actions.muteParticipant(p.identity, nameStr, roomName)
+                            actions.muteParticipant(p.identity, nameStr, roomName),
                           )}
                           disabled={busy === `mute-${p.identity}`}
                           style={actionBtn('#ef4444', busy === `mute-${p.identity}`)}
@@ -435,7 +456,7 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
                       ) : (
                         <button
                           onClick={withBusy(`invite-${p.identity}`, () =>
-                            actions.inviteToSpeak(p.identity)
+                            actions.inviteToSpeak(p.identity),
                           )}
                           disabled={busy === `invite-${p.identity}`}
                           style={actionBtn('#16a34a', busy === `invite-${p.identity}`)}
@@ -448,7 +469,7 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
                       {camOn ? (
                         <button
                           onClick={withBusy(`cam-${p.identity}`, () =>
-                            actions.disableCamera(p.identity, nameStr, roomName)
+                            actions.disableCamera(p.identity, nameStr, roomName),
                           )}
                           disabled={busy === `cam-${p.identity}`}
                           style={actionBtn('#ef4444', busy === `cam-${p.identity}`)}
@@ -458,7 +479,7 @@ export function ModeratorPanel({ roomName, moderation }: ModeratorPanelProps) {
                       ) : (
                         <button
                           onClick={withBusy(`icam-${p.identity}`, () =>
-                            actions.inviteToCamera(p.identity)
+                            actions.inviteToCamera(p.identity),
                           )}
                           disabled={busy === `icam-${p.identity}`}
                           style={actionBtn('#3b82f6', busy === `icam-${p.identity}`)}

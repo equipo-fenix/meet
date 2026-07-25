@@ -29,10 +29,27 @@ export default function Page() {
     >
       {/* Logo / Marca */}
       <div style={{ textAlign: 'center', marginBottom: '48px' }}>
-        <p style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.2em', color: '#C9A84C', textTransform: 'uppercase', margin: '0 0 12px' }}>
+        <p
+          style={{
+            fontSize: '12px',
+            fontWeight: 700,
+            letterSpacing: '0.2em',
+            color: '#C9A84C',
+            textTransform: 'uppercase',
+            margin: '0 0 12px',
+          }}
+        >
           FÉNIX ACADEMY
         </p>
-        <h1 style={{ fontSize: '42px', fontWeight: 900, color: '#ffffff', margin: '0 0 8px', lineHeight: 1.1 }}>
+        <h1
+          style={{
+            fontSize: '42px',
+            fontWeight: 900,
+            color: '#ffffff',
+            margin: '0 0 8px',
+            lineHeight: 1.1,
+          }}
+        >
           Fénix <span style={{ color: '#C9A84C' }}>Live</span>
         </h1>
         <p style={{ fontSize: '15px', color: '#6b6b8a', margin: 0 }}>
@@ -51,12 +68,23 @@ export default function Page() {
           padding: '32px',
         }}
       >
-        <p style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.12em', color: '#C9A84C', textTransform: 'uppercase', margin: '0 0 20px' }}>
+        <p
+          style={{
+            fontSize: '11px',
+            fontWeight: 700,
+            letterSpacing: '0.12em',
+            color: '#C9A84C',
+            textTransform: 'uppercase',
+            margin: '0 0 20px',
+          }}
+        >
           Unirse a una sala
         </p>
 
         <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', fontSize: '12px', color: '#6b6b8a', marginBottom: '6px' }}>
+          <label
+            style={{ display: 'block', fontSize: '12px', color: '#6b6b8a', marginBottom: '6px' }}
+          >
             Nombre de sala
           </label>
           <input

@@ -29,17 +29,14 @@ type Props = {
   camDefault: boolean;
 };
 
-const PageClientImpl = dynamic(
-  () => import('./PageClientImpl').then((m) => m.PageClientImpl),
-  {
-    ssr: false,
-    loading: () => (
-      <main data-lk-theme="default" style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
-        <p style={{ opacity: 0.7 }}>Preparando la sala…</p>
-      </main>
-    ),
-  },
-);
+const PageClientImpl = dynamic(() => import('./PageClientImpl').then((m) => m.PageClientImpl), {
+  ssr: false,
+  loading: () => (
+    <main data-lk-theme="default" style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
+      <p style={{ opacity: 0.7 }}>Preparando la sala…</p>
+    </main>
+  ),
+});
 
 export function ClientOnlyRoom(props: Props) {
   return <PageClientImpl {...props} />;

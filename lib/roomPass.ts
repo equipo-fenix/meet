@@ -34,7 +34,10 @@ export interface RoomPassPayload {
 
 export type RoomPassResult =
   | { valid: true; payload: RoomPassPayload }
-  | { valid: false; reason: 'no_secret' | 'malformed' | 'bad_signature' | 'expired' | 'room_mismatch' };
+  | {
+      valid: false;
+      reason: 'no_secret' | 'malformed' | 'bad_signature' | 'expired' | 'room_mismatch';
+    };
 
 function b64urlDecode(input: string): Buffer {
   const pad = input.length % 4 === 0 ? '' : '='.repeat(4 - (input.length % 4));
@@ -55,7 +58,10 @@ function sign(signingInput: string, secret: string): string {
  * `expectedRoom` no es opcional a propósito: un pase válido para otra sala no
  * debe abrir esta. Es el error clásico de estos esquemas.
  */
-export function verifyRoomPass(pass: string | null | undefined, expectedRoom: string): RoomPassResult {
+export function verifyRoomPass(
+  pass: string | null | undefined,
+  expectedRoom: string,
+): RoomPassResult {
   const secret = process.env.FENIX_ROOM_SECRET;
   if (!secret) return { valid: false, reason: 'no_secret' };
   if (!pass || typeof pass !== 'string') return { valid: false, reason: 'malformed' };

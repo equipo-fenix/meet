@@ -23,10 +23,10 @@
  */
 
 export interface VideoEnhanceConfig {
-  sharpness?:  number;  // 0.0–1.0   · default 0.45
-  brightness?: number;  // -0.2–0.2  · default 0.04
-  contrast?:   number;  // 0.8–1.3   · default 1.06
-  saturation?: number;  // 0.8–1.5   · default 1.08
+  sharpness?: number; // 0.0–1.0   · default 0.45
+  brightness?: number; // -0.2–0.2  · default 0.04
+  contrast?: number; // 0.8–1.3   · default 1.06
+  saturation?: number; // 0.8–1.5   · default 1.08
 }
 
 // ── GLSL ──────────────────────────────────────────────────────────────────────
@@ -82,8 +82,12 @@ function compileShader(gl: WebGL2RenderingContext, type: number, src: string): W
 }
 
 interface BreakoutBoxWindow {
-  MediaStreamTrackProcessor: new (opts: { track: MediaStreamTrack }) => { readable: ReadableStream<VideoFrame> };
-  MediaStreamTrackGenerator: new (opts: { kind: 'video' | 'audio' }) => { writable: WritableStream<VideoFrame> } & MediaStreamTrack;
+  MediaStreamTrackProcessor: new (opts: { track: MediaStreamTrack }) => {
+    readable: ReadableStream<VideoFrame>;
+  };
+  MediaStreamTrackGenerator: new (opts: {
+    kind: 'video' | 'audio';
+  }) => { writable: WritableStream<VideoFrame> } & MediaStreamTrack;
 }
 
 // ── Processor ─────────────────────────────────────────────────────────────────
@@ -111,9 +115,9 @@ export class VideoEnhanceProcessor {
 
   constructor(cfg: VideoEnhanceConfig = {}) {
     this.cfg = {
-      sharpness:  cfg.sharpness  ?? 0.45,
+      sharpness: cfg.sharpness ?? 0.45,
       brightness: cfg.brightness ?? 0.04,
-      contrast:   cfg.contrast   ?? 1.06,
+      contrast: cfg.contrast ?? 1.06,
       saturation: cfg.saturation ?? 1.08,
     };
   }
@@ -125,13 +129,15 @@ export class VideoEnhanceProcessor {
     // WebGL2 canvas para procesamiento GPU
     this.canvas = new OffscreenCanvas(width, height);
     const gl = this.canvas.getContext('webgl2', {
-      alpha: false, antialias: false, preserveDrawingBuffer: false,
+      alpha: false,
+      antialias: false,
+      preserveDrawingBuffer: false,
     }) as WebGL2RenderingContext | null;
     if (!gl) throw new Error('[VideoEnhance] WebGL2 no disponible');
     this.gl = gl;
 
     const prog = gl.createProgram()!;
-    gl.attachShader(prog, compileShader(gl, gl.VERTEX_SHADER,   VS));
+    gl.attachShader(prog, compileShader(gl, gl.VERTEX_SHADER, VS));
     gl.attachShader(prog, compileShader(gl, gl.FRAGMENT_SHADER, FS));
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
@@ -140,7 +146,7 @@ export class VideoEnhanceProcessor {
 
     const vbo = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     const posLoc = gl.getAttribLocation(prog, 'a_pos');
     gl.enableVertexAttribArray(posLoc);
     gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
@@ -154,18 +160,18 @@ export class VideoEnhanceProcessor {
     gl.uniform1i(gl.getUniformLocation(prog, 'u_tex'), 0);
 
     this.uloc = {
-      px:       gl.getUniformLocation(prog, 'u_px'),
-      sharp:    gl.getUniformLocation(prog, 'u_sharp'),
-      bright:   gl.getUniformLocation(prog, 'u_bright'),
+      px: gl.getUniformLocation(prog, 'u_px'),
+      sharp: gl.getUniformLocation(prog, 'u_sharp'),
+      bright: gl.getUniformLocation(prog, 'u_bright'),
       contrast: gl.getUniformLocation(prog, 'u_contrast'),
-      sat:      gl.getUniformLocation(prog, 'u_sat'),
+      sat: gl.getUniformLocation(prog, 'u_sat'),
     };
     gl.viewport(0, 0, width, height);
-    gl.uniform2f(this.uloc.px,       1 / width, 1 / height);
-    gl.uniform1f(this.uloc.sharp,    this.cfg.sharpness);
-    gl.uniform1f(this.uloc.bright,   this.cfg.brightness);
+    gl.uniform2f(this.uloc.px, 1 / width, 1 / height);
+    gl.uniform1f(this.uloc.sharp, this.cfg.sharpness);
+    gl.uniform1f(this.uloc.bright, this.cfg.brightness);
     gl.uniform1f(this.uloc.contrast, this.cfg.contrast);
-    gl.uniform1f(this.uloc.sat,      this.cfg.saturation);
+    gl.uniform1f(this.uloc.sat, this.cfg.saturation);
 
     // Canvas 2D auxiliar para compatibilidad macOS con VideoFrame
     this.canvas2d = new OffscreenCanvas(width, height);
@@ -188,7 +194,7 @@ export class VideoEnhanceProcessor {
     this.lastFrameMs = 0;
 
     // Pausa breve para que el AbortSignal se propague
-    await new Promise<void>(r => setTimeout(r, 50));
+    await new Promise<void>((r) => setTimeout(r, 50));
 
     // Actualizar uniform de resolución si cambió la cámara
     const { width = 1280, height = 720 } = opts.track.getSettings();
@@ -215,8 +221,8 @@ export class VideoEnhanceProcessor {
       .pipeThrough(
         new TransformStream<VideoFrame, VideoFrame>({
           transform: async (frame, ctrl) => {
-            const t0  = performance.now();
-            const ts  = frame.timestamp;
+            const t0 = performance.now();
+            const ts = frame.timestamp;
             // Nunca pasar duration undefined — causa OperationError en macOS
             const frameInit: VideoFrameInit = { timestamp: ts };
             if (typeof frame.duration === 'number') frameInit.duration = frame.duration;
@@ -253,10 +259,12 @@ export class VideoEnhanceProcessor {
             }
           },
         }),
-        { signal }
+        { signal },
       )
       .pipeTo(writer.writable, { signal })
-      .catch(() => { /* AbortError esperado al destroy() o restart() */ });
+      .catch(() => {
+        /* AbortError esperado al destroy() o restart() */
+      });
 
     this.processedTrack = writer as unknown as MediaStreamTrack;
   }
@@ -266,10 +274,10 @@ export class VideoEnhanceProcessor {
     this.abort?.abort();
     const { gl, tex } = this;
     if (gl && tex) gl.deleteTexture(tex);
-    this.gl       = undefined;
-    this.canvas   = undefined;
-    this.tex      = undefined;
-    this.ctx2d    = undefined;
+    this.gl = undefined;
+    this.canvas = undefined;
+    this.tex = undefined;
+    this.ctx2d = undefined;
     this.canvas2d = undefined;
     this.processedTrack = undefined;
   }
