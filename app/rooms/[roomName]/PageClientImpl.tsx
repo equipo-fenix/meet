@@ -524,9 +524,11 @@ function VideoConferenceComponent(props: {
         />
 
         {/* ── Quién espera fuera — solo host.
-            El nombre de la sala es el id de la sesión en APEX: por eso la
-            puerta se puede consultar sin llevar el dato por separado. ── */}
-        {isHost && pass && <LobbyBar sessionId={props.connectionDetails.roomName} pass={pass} />}
+            El ID viene dentro del pase verificado. `roomName` puede ser un
+            slug legible y no sirve para consultar webinar_sessions.id. ── */}
+        {isHost && pass && props.connectionDetails.sessionId && (
+          <LobbyBar sessionId={props.connectionDetails.sessionId} pass={pass} />
+        )}
 
         {/* ── Diálogo de invitación del host (participante) ── */}
         <InviteDialog

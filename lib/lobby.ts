@@ -43,7 +43,7 @@ async function llamar(accion: string, sessionId: string, pass: string, extra: ob
   return data;
 }
 
-/** El anfitrión ha llegado. Crea la puerta si no existía — cerrada. */
+/** El anfitrión ha llegado. Crea la puerta si no existía — uno por uno. */
 export function anunciarAnfitrion(sessionId: string, pass: string) {
   return llamar('host_arrived', sessionId, pass);
 }
