@@ -49,6 +49,7 @@ const MARGEN_SEGURIDAD_SEG = 2;
 export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: IntroStageProps) {
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const [silenciada, setSilenciada] = React.useState(true);
+  const [duracionVimeoSec, setDuracionVimeoSec] = React.useState<number | null>(null);
   // El anfitrión puede preparar la sala antes de la hora. En ese caso conoce
   // la intro, pero no debe reproducirla antes: esperamos al reloj del servidor.
   const [yaEmpezo, setYaEmpezo] = React.useState(() => Date.now() >= startedAtMs);
@@ -88,20 +89,24 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
   // ── Cronómetro de respaldo ────────────────────────────────────────────────
   React.useEffect(() => {
     if (!yaEmpezo) return;
-    const restante = durationSec - desdeSegundos + MARGEN_SEGURIDAD_SEG;
+    // El campo guardado al programar es un respaldo. Si Vimeo responde,
+    // manda la duración real del archivo para que una intro de 5:15 no se
+    // corte porque alguien dejó el valor predeterminado de 60 segundos.
+    const duracionEfectiva = Math.max(durationSec, duracionVimeoSec ?? 0);
+    const restante = duracionEfectiva - desdeSegundos + MARGEN_SEGURIDAD_SEG;
     if (restante <= 0) {
       terminar();
       return;
     }
     const id = setTimeout(terminar, restante * 1000);
     return () => clearTimeout(id);
-  }, [durationSec, desdeSegundos, terminar, yaEmpezo]);
+  }, [durationSec, duracionVimeoSec, desdeSegundos, terminar, yaEmpezo]);
 
   // ── El reproductor avisa que terminó ──────────────────────────────────────
   React.useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== 'https://player.vimeo.com') return;
-      let data: { event?: string; method?: string };
+      let data: { event?: string; method?: string; value?: unknown };
       try {
         data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
       } catch {
@@ -114,6 +119,18 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
             'https://player.vimeo.com',
           );
         }
+        iframeRef.current?.contentWindow?.postMessage(
+          JSON.stringify({ method: 'getDuration' }),
+          'https://player.vimeo.com',
+        );
+      }
+      if (
+        data?.method === 'getDuration' &&
+        typeof data.value === 'number' &&
+        Number.isFinite(data.value) &&
+        data.value > 0
+      ) {
+        setDuracionVimeoSec(data.value);
       }
       if (data?.event === 'ended' || data?.event === 'finish') terminar();
     };
