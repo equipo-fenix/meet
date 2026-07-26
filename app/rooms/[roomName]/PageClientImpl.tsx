@@ -26,7 +26,6 @@ import {
   TrackPublishDefaults,
   VideoCaptureOptions,
 } from 'livekit-client';
-import { KrispNoiseFilter, isKrispNoiseFilterSupported } from '@livekit/krisp-noise-filter';
 import { VideoEnhanceProcessor, isVideoEnhanceSupported } from '@/lib/VideoEnhanceProcessor';
 import { useRoomModeration, PendingInviteType } from '@/lib/useRoomModeration';
 import { useRouter } from 'next/navigation';
@@ -245,28 +244,6 @@ function VideoConferenceComponent(props: {
 
   // ── Moderación ───────────────────────────────────────────────────────────
   const moderation = useRoomModeration(room, isHost);
-
-  // ── Krisp: cancelación de ruido con IA ───────────────────────────────────
-  React.useEffect(() => {
-    if (!isKrispNoiseFilterSupported()) return;
-    const filter = KrispNoiseFilter();
-    const applyKrisp = async (pub: LocalTrackPublication) => {
-      if (pub.kind === 'audio' && pub.track) {
-        try {
-          // @ts-ignore
-          await pub.track.setProcessor(filter);
-          console.log('[Krisp] activo');
-        } catch (e) {
-          console.warn('[Krisp] error:', e);
-        }
-      }
-    };
-    room.localParticipant.audioTrackPublications.forEach(applyKrisp);
-    room.on(RoomEvent.LocalTrackPublished, applyKrisp);
-    return () => {
-      room.off(RoomEvent.LocalTrackPublished, applyKrisp);
-    };
-  }, [room]);
 
   // ── Mejora de imagen ──────────────────────────────────────────────────────
   const applyEnhancement = React.useCallback(
