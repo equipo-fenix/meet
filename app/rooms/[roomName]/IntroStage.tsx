@@ -108,12 +108,14 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
         return;
       }
       if (data?.event === 'ready') {
-        iframeRef.current?.contentWindow?.postMessage(
-          JSON.stringify({ method: 'addEventListener', value: 'finish' }),
-          'https://player.vimeo.com',
-        );
+        for (const eventName of ['ended', 'finish']) {
+          iframeRef.current?.contentWindow?.postMessage(
+            JSON.stringify({ method: 'addEventListener', value: eventName }),
+            'https://player.vimeo.com',
+          );
+        }
       }
-      if (data?.event === 'finish') terminar();
+      if (data?.event === 'ended' || data?.event === 'finish') terminar();
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
@@ -151,7 +153,12 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
           ref={iframeRef}
           src={src}
           title="Introducción de la sesión"
-          allow="autoplay; fullscreen; picture-in-picture"
+          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+          referrerPolicy="strict-origin-when-cross-origin"
+          // La sala usa COEP para proteger las llamadas. Vimeo es un origen
+          // externo, así que el iframe debe cargarse sin credenciales para que
+          // Chrome permita incrustarlo manteniendo el aislamiento de la sala.
+          {...({ credentialless: '' } as Record<string, string>)}
           // Sin `allow-top-navigation`: una cortinilla no tiene por qué poder
           // sacar a nadie de la sala.
           sandbox="allow-scripts allow-same-origin allow-presentation"

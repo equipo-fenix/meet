@@ -8,6 +8,7 @@ import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { ConnectionDetails } from '@/lib/types';
 import { LocalUserChoices, PreJoin, RoomContext, useIsRecording } from '@livekit/components-react';
 import { LobbyBar } from './LobbyBar';
+import { sessionIdHintFromPass } from '@/lib/clientRoomPass';
 import type { IntroConfig } from './FenixRoomLayout';
 import { FenixRoomLayout } from './FenixRoomLayout';
 import type { HostTool } from './ControlDock';
@@ -187,6 +188,10 @@ function VideoConferenceComponent(props: {
     if (typeof window === 'undefined') return null;
     return new URLSearchParams(window.location.search).get('pass');
   }, []);
+  const apexSessionId = React.useMemo(
+    () => props.connectionDetails.sessionId ?? sessionIdHintFromPass(pass),
+    [props.connectionDetails.sessionId, pass],
+  );
 
   const keyProvider = new ExternalE2EEKeyProvider();
   const { worker, e2eePassphrase } = useSetupE2EE();
@@ -526,9 +531,7 @@ function VideoConferenceComponent(props: {
         {/* ── Quién espera fuera — solo host.
             El ID viene dentro del pase verificado. `roomName` puede ser un
             slug legible y no sirve para consultar webinar_sessions.id. ── */}
-        {isHost && pass && props.connectionDetails.sessionId && (
-          <LobbyBar sessionId={props.connectionDetails.sessionId} pass={pass} />
-        )}
+        {isHost && pass && apexSessionId && <LobbyBar sessionId={apexSessionId} pass={pass} />}
 
         {/* ── Diálogo de invitación del host (participante) ── */}
         <InviteDialog
