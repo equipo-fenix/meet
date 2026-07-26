@@ -73,10 +73,7 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
     return transcurrido > 0 ? transcurrido : 0;
   }, [startedAtMs, yaEmpezo]);
 
-  const src = React.useMemo(
-    () => introPlayerUrl(introRef, { startAt: desdeSegundos }),
-    [introRef, desdeSegundos],
-  );
+  const src = React.useMemo(() => introPlayerUrl(introRef), [introRef]);
 
   // Una sola salida, se llame desde donde se llame.
   const terminada = React.useRef(false);
@@ -113,12 +110,17 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
         return;
       }
       if (data?.event === 'ready') {
+        const offsetActual = Math.max(0, (Date.now() - startedAtMs) / 1000);
         for (const eventName of ['ended', 'finish']) {
           iframeRef.current?.contentWindow?.postMessage(
             JSON.stringify({ method: 'addEventListener', value: eventName }),
             'https://player.vimeo.com',
           );
         }
+        iframeRef.current?.contentWindow?.postMessage(
+          JSON.stringify({ method: 'setCurrentTime', value: offsetActual }),
+          'https://player.vimeo.com',
+        );
         iframeRef.current?.contentWindow?.postMessage(
           JSON.stringify({ method: 'getDuration' }),
           'https://player.vimeo.com',
@@ -136,7 +138,7 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [terminar]);
+  }, [startedAtMs, terminar]);
 
   // ── Devolver el sonido al primer gesto ────────────────────────────────────
   const activarSonido = React.useCallback(() => {

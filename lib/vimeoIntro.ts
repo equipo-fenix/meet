@@ -56,8 +56,12 @@ export function introRefFromInput(input: string | null | undefined): string | nu
  * URL del reproductor. Sin controles, sin título, sin sugerencias al final:
  * esto es una cortinilla, no una página de Vimeo. Y con `autoplay` + `muted`
  * apagados a propósito — el sonido lo gestiona la sala, ver más abajo.
+ *
+ * El punto exacto se sincroniza DESPUÉS, cuando el reproductor avisa que está
+ * listo. Meter `t=...` en la URL depende de cuánto tarde cada navegador en
+ * montar el iframe, y eso mete a un alumno unos segundos detrás del anfitrión.
  */
-export function introPlayerUrl(ref: IntroRef, opts: { startAt?: number; muted?: boolean } = {}) {
+export function introPlayerUrl(ref: IntroRef, opts: { muted?: boolean } = {}) {
   const params = new URLSearchParams({
     autoplay: '1',
     // Sin esto, Safari y Chrome bloquean el arranque automático. La sala lo
@@ -72,7 +76,5 @@ export function introPlayerUrl(ref: IntroRef, opts: { startAt?: number; muted?: 
     dnt: '1',
   });
   if (ref.hash) params.set('h', ref.hash);
-  // Quien llega tarde no ve la intro desde el principio: la ve por donde va.
-  if (opts.startAt && opts.startAt > 0) params.set('t', `${Math.floor(opts.startAt)}s`);
   return `https://player.vimeo.com/video/${ref.videoId}?${params.toString()}`;
 }
