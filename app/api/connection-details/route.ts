@@ -93,6 +93,7 @@ export async function GET(request: NextRequest) {
     const data: ConnectionDetails = {
       serverUrl: livekitServerUrl,
       roomName: roomName,
+      serverNowMs: Date.now(),
       // Sale del pase ya verificado. Aceptarlo desde la URL permitiría mezclar
       // la puerta de una sesión con la sala de otra.
       sessionId: sessionIdFromVerifiedPass(passCheck),
