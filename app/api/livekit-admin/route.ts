@@ -47,6 +47,49 @@ interface RequestBody {
   pass?: string;
 }
 
+async function finalizeApexSession(
+  sessionId: string,
+  pass: string | undefined,
+  problemas: string[],
+): Promise<void> {
+  const payload = JSON.stringify({
+    session_id: sessionId,
+    pass,
+    room_closed_by_meet: true,
+  });
+
+  let ultimoError = '';
+  for (let intento = 1; intento <= 3; intento++) {
+    try {
+      const apexRes = await fetch(`${APEX_FUNCTIONS_URL}/webinar-session-finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      });
+      if (!apexRes.ok) {
+        const detail = await apexRes.text().catch(() => apexRes.statusText);
+        ultimoError = `${apexRes.status} ${detail.slice(0, 200)}`;
+      } else {
+        const apexJson = (await apexRes.json().catch(() => null)) as {
+          sala?: { problemas?: string[] };
+        } | null;
+        if (Array.isArray(apexJson?.sala?.problemas)) {
+          problemas.push(...apexJson.sala.problemas);
+        }
+        return;
+      }
+    } catch (e) {
+      ultimoError = e instanceof Error ? e.message : String(e);
+    }
+
+    if (intento < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 1200 * intento));
+    }
+  }
+
+  problemas.push(`apex: ${ultimoError || 'no se pudo finalizar la sesión en APEX'}`);
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const body = (await req.json()) as RequestBody;
@@ -162,30 +205,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
         const sessionId = sessionIdFromVerifiedPass(passCheck);
         if (sessionId) {
-          try {
-            const apexRes = await fetch(`${APEX_FUNCTIONS_URL}/webinar-session-finalize`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                session_id: sessionId,
-                pass,
-                room_closed_by_meet: true,
-              }),
-            });
-            if (!apexRes.ok) {
-              const detail = await apexRes.text().catch(() => apexRes.statusText);
-              problemas.push(`apex: ${apexRes.status} ${detail.slice(0, 200)}`);
-            } else {
-              const apexJson = (await apexRes.json().catch(() => null)) as {
-                sala?: { problemas?: string[] };
-              } | null;
-              if (Array.isArray(apexJson?.sala?.problemas)) {
-                problemas.push(...apexJson.sala.problemas);
-              }
-            }
-          } catch (e) {
-            problemas.push(`apex: ${e instanceof Error ? e.message : String(e)}`);
-          }
+          await finalizeApexSession(sessionId, pass, problemas);
+        } else {
+          problemas.push('apex: no se encontró el id canónico de la sesión para finalizar');
         }
 
         return NextResponse.json({ ok: true, problemas });
