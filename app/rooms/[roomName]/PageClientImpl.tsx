@@ -179,6 +179,12 @@ function VideoConferenceComponent(props: {
   autoRecord?: boolean;
 }) {
   const isHost = props.role === 'host';
+  const clockOffsetMs = React.useMemo(() => {
+    const serverNowMs = props.connectionDetails.serverNowMs;
+    return typeof serverNowMs === 'number' && Number.isFinite(serverNowMs)
+      ? Date.now() - serverNowMs
+      : 0;
+  }, [props.connectionDetails.serverNowMs]);
 
   // El pase con el que entró esta persona. Es lo que autoriza las órdenes que
   // salen de dentro de la sala — aprobar a quien espera, terminar la sesión.
@@ -477,6 +483,34 @@ function VideoConferenceComponent(props: {
     toast.error(`Error de cifrado: ${error.message}`);
   }, []);
 
+  // ── Micrófono móvil: reintento con gesto real ────────────────────────────
+  // Algunos navegadores móviles no aceptan publicar audio hasta que el gesto
+  // del usuario sucede dentro de la propia sala. Si APEX pidió micrófono
+  // desde el lobby, aprovechamos el primer toque para reintentar de forma
+  // transparente en vez de dejar a la persona peleándose con un botón muerto.
+  React.useEffect(() => {
+    if (!props.userChoices.audioEnabled) return;
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (!isMobile) return;
+
+    let cancelled = false;
+    const unlockMic = () => {
+      if (cancelled) return;
+      if (room.localParticipant.isMicrophoneEnabled) return;
+      room.localParticipant.setMicrophoneEnabled(true).catch((err) => {
+        if (err?.name !== 'NotAllowedError' && err?.name !== 'NotFoundError') handleError(err);
+      });
+    };
+
+    window.addEventListener('pointerdown', unlockMic, { once: true });
+    window.addEventListener('touchstart', unlockMic, { once: true });
+    return () => {
+      cancelled = true;
+      window.removeEventListener('pointerdown', unlockMic);
+      window.removeEventListener('touchstart', unlockMic);
+    };
+  }, [props.userChoices.audioEnabled, room, handleError]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -491,6 +525,7 @@ function VideoConferenceComponent(props: {
         <SalaFenix
           isHost={isHost}
           intro={props.intro}
+          clockOffsetMs={clockOffsetMs}
           roomName={props.connectionDetails.roomName}
           pass={pass}
           moderation={moderation}
@@ -569,6 +604,7 @@ function VideoConferenceComponent(props: {
 function SalaFenix({
   isHost,
   intro,
+  clockOffsetMs,
   roomName,
   pass,
   moderation,
@@ -577,6 +613,7 @@ function SalaFenix({
 }: {
   isHost: boolean;
   intro?: IntroConfig | null;
+  clockOffsetMs: number;
   roomName: string;
   pass: string | null;
   moderation: ModerationState;
@@ -595,6 +632,7 @@ function SalaFenix({
     <FenixRoomLayout
       isHost={isHost}
       intro={intro}
+      clockOffsetMs={clockOffsetMs}
       roomName={roomName}
       pass={pass}
       moderation={moderation}

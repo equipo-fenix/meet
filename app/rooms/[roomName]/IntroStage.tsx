@@ -35,6 +35,8 @@ interface IntroStageProps {
   introRef: IntroRef;
   /** Momento en que la intro empezó a correr, en milisegundos epoch. */
   startedAtMs: number;
+  /** Diferencia reloj local - reloj del servidor. */
+  clockOffsetMs: number;
   /** Duración declarada al programar la sesión. */
   durationSec: number;
   onEnded: () => void;
@@ -45,33 +47,43 @@ interface IntroStageProps {
  * cortar un par de segundos tarde que dejar la sala colgada.
  */
 const MARGEN_SEGURIDAD_SEG = 2;
+const DRIFT_THRESHOLD_SEC = 1.25;
+const DRIFT_CHECK_MS = 4000;
 
-export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: IntroStageProps) {
+export function IntroStage({
+  introRef,
+  startedAtMs,
+  clockOffsetMs,
+  durationSec,
+  onEnded,
+}: IntroStageProps) {
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const [silenciada, setSilenciada] = React.useState(true);
   const [duracionVimeoSec, setDuracionVimeoSec] = React.useState<number | null>(null);
+  const ultimoTiempoRef = React.useRef<number | null>(null);
+  const ahoraSincronizado = React.useCallback(() => Date.now() - clockOffsetMs, [clockOffsetMs]);
   // El anfitrión puede preparar la sala antes de la hora. En ese caso conoce
   // la intro, pero no debe reproducirla antes: esperamos al reloj del servidor.
-  const [yaEmpezo, setYaEmpezo] = React.useState(() => Date.now() >= startedAtMs);
+  const [yaEmpezo, setYaEmpezo] = React.useState(() => ahoraSincronizado() >= startedAtMs);
 
   React.useEffect(() => {
-    if (Date.now() >= startedAtMs) {
+    if (ahoraSincronizado() >= startedAtMs) {
       setYaEmpezo(true);
       return;
     }
     const id = setInterval(() => {
-      if (Date.now() >= startedAtMs) setYaEmpezo(true);
-    }, 1000);
+      if (ahoraSincronizado() >= startedAtMs) setYaEmpezo(true);
+    }, 500);
     return () => clearInterval(id);
-  }, [startedAtMs]);
+  }, [startedAtMs, ahoraSincronizado]);
 
   // El punto por el que va la intro cuando esta persona entra. Se calcula una
   // sola vez: recalcularlo obligaría a recargar el iframe y el video saltaría.
   const desdeSegundos = React.useMemo(() => {
     if (!yaEmpezo) return 0;
-    const transcurrido = (Date.now() - startedAtMs) / 1000;
+    const transcurrido = (ahoraSincronizado() - startedAtMs) / 1000;
     return transcurrido > 0 ? transcurrido : 0;
-  }, [startedAtMs, yaEmpezo]);
+  }, [startedAtMs, yaEmpezo, ahoraSincronizado]);
 
   const src = React.useMemo(() => introPlayerUrl(introRef), [introRef]);
 
@@ -110,7 +122,7 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
         return;
       }
       if (data?.event === 'ready') {
-        const offsetActual = Math.max(0, (Date.now() - startedAtMs) / 1000);
+        const offsetActual = Math.max(0, (ahoraSincronizado() - startedAtMs) / 1000);
         for (const eventName of ['ended', 'finish']) {
           iframeRef.current?.contentWindow?.postMessage(
             JSON.stringify({ method: 'addEventListener', value: eventName }),
@@ -134,11 +146,37 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
       ) {
         setDuracionVimeoSec(data.value);
       }
+      if (
+        data?.method === 'getCurrentTime' &&
+        typeof data.value === 'number' &&
+        Number.isFinite(data.value)
+      ) {
+        ultimoTiempoRef.current = data.value;
+      }
       if (data?.event === 'ended' || data?.event === 'finish') terminar();
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [startedAtMs, terminar]);
+  }, [startedAtMs, terminar, ahoraSincronizado]);
+
+  // ── Corrección periódica de desfase ──────────────────────────────────────
+  React.useEffect(() => {
+    if (!yaEmpezo) return;
+    const id = setInterval(() => {
+      const ventana = iframeRef.current?.contentWindow;
+      if (!ventana) return;
+      ventana.postMessage(JSON.stringify({ method: 'getCurrentTime' }), 'https://player.vimeo.com');
+      const esperado = Math.max(0, (ahoraSincronizado() - startedAtMs) / 1000);
+      const actual = ultimoTiempoRef.current;
+      if (typeof actual !== 'number') return;
+      if (Math.abs(actual - esperado) < DRIFT_THRESHOLD_SEC) return;
+      ventana.postMessage(
+        JSON.stringify({ method: 'setCurrentTime', value: esperado }),
+        'https://player.vimeo.com',
+      );
+    }, DRIFT_CHECK_MS);
+    return () => clearInterval(id);
+  }, [yaEmpezo, startedAtMs, ahoraSincronizado]);
 
   // ── Devolver el sonido al primer gesto ────────────────────────────────────
   const activarSonido = React.useCallback(() => {
