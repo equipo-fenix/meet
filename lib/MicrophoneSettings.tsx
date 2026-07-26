@@ -22,9 +22,12 @@ export function MicrophoneSettings() {
   );
 
   React.useEffect(() => {
-    // enable Krisp by default on non-low power devices
-    setNoiseFilterEnabled(!isLowPowerDevice());
-  }, []);
+    // La cancelación IA es útil, pero no debe imponerse de entrada: en pruebas
+    // reales con el micrófono integrado del Mac estaba empujando demasiado la
+    // voz y causando bombeo de volumen. Se deja disponible, pero apagada hasta
+    // que la persona la active a propósito.
+    setNoiseFilterEnabled(false);
+  }, [setNoiseFilterEnabled]);
   return (
     <div
       style={{

@@ -229,8 +229,13 @@ function VideoConferenceComponent(props: {
       audioCaptureDefaults: {
         deviceId: props.userChoices.audioDeviceId ?? undefined,
         echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        // En macOS + Chrome + micrófonos integrados, la triple cadena
+        // "echoCancellation + noiseSuppression + autoGainControl", sumada a
+        // Krisp cuando el usuario lo activa, bombeaba el volumen: subía,
+        // bajaba y a ratos sonaba roto. Dejamos solo la cancelación de eco por
+        // defecto para priorizar una voz estable y natural.
+        noiseSuppression: false,
+        autoGainControl: false,
         channelCount: 1,
       },
       adaptiveStream: false,
