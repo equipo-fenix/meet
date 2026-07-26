@@ -23,6 +23,8 @@ export function isVideoCodec(codec: string): codec is VideoCodec {
 export type ConnectionDetails = {
   serverUrl: string;
   roomName: string;
+  /** Hora del servidor al emitir el token, en epoch ms. */
+  serverNowMs?: number;
   /**
    * ID canónico de la sesión en APEX. No siempre coincide con `roomName`:
    * las salas programadas suelen usar un slug legible. La puerta de espera

@@ -60,6 +60,8 @@ interface FenixRoomLayoutProps {
   isHost: boolean;
   /** Cortinilla de apertura. Ausente = la sala abre directo a las cámaras. */
   intro?: IntroConfig | null;
+  /** Diferencia reloj local - reloj del servidor. */
+  clockOffsetMs: number;
   /** Necesarios para que el anfitrión pueda cerrar la sala desde la barra. */
   roomName: string;
   pass: string | null;
@@ -78,6 +80,7 @@ function trackIdentity(ref: TrackReferenceOrPlaceholder): string {
 export function FenixRoomLayout({
   isHost,
   intro,
+  clockOffsetMs,
   roomName,
   pass,
   moderation,
@@ -96,9 +99,10 @@ export function FenixRoomLayout({
   // ya pasó entra a la sesión, no a un video terminado.
   const introVigente = React.useMemo(() => {
     if (!intro) return false;
-    const transcurrido = (Date.now() - intro.startedAtMs) / 1000;
+    const ahoraSincronizado = Date.now() - clockOffsetMs;
+    const transcurrido = (ahoraSincronizado - intro.startedAtMs) / 1000;
     return transcurrido < intro.durationSec;
-  }, [intro]);
+  }, [intro, clockOffsetMs]);
 
   const [introCorriendo, setIntroCorriendo] = React.useState(introVigente);
   React.useEffect(() => setIntroCorriendo(introVigente), [introVigente]);
@@ -362,6 +366,7 @@ export function FenixRoomLayout({
                 <IntroStage
                   introRef={intro.ref}
                   startedAtMs={intro.startedAtMs}
+                  clockOffsetMs={clockOffsetMs}
                   durationSec={intro.durationSec}
                   onEnded={() => setIntroCorriendo(false)}
                 />
