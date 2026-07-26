@@ -11,7 +11,7 @@ export function MicrophoneSettings() {
       filterOptions: {
         bufferOverflowMs: 100,
         bufferDropMs: 200,
-        quality: isLowPowerDevice() ? 'low' : 'medium',
+        quality: isLowPowerDevice() ? 'medium' : 'high',
         onBufferDrop: () => {
           console.warn(
             'krisp buffer dropped, noise filter versions >= 0.3.2 will automatically disable the filter',
@@ -22,11 +22,11 @@ export function MicrophoneSettings() {
   );
 
   React.useEffect(() => {
-    // La cancelación IA es útil, pero no debe imponerse de entrada: en pruebas
-    // reales con el micrófono integrado del Mac estaba empujando demasiado la
-    // voz y causando bombeo de volumen. Se deja disponible, pero apagada hasta
-    // que la persona la active a propósito.
-    setNoiseFilterEnabled(false);
+    // Ahora Krisp ya no se aplica dos veces sobre el mismo track. Eso nos deja
+    // usarlo como filtro principal para recortar tele, música y ambiente sin
+    // volver a distorsionar la voz con una segunda capa. Se enciende por
+    // defecto para priorizar la voz del anfitrión.
+    setNoiseFilterEnabled(true);
   }, [setNoiseFilterEnabled]);
   return (
     <div
