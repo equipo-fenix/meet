@@ -49,13 +49,28 @@ const MARGEN_SEGURIDAD_SEG = 2;
 export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: IntroStageProps) {
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const [silenciada, setSilenciada] = React.useState(true);
+  // El anfitrión puede preparar la sala antes de la hora. En ese caso conoce
+  // la intro, pero no debe reproducirla antes: esperamos al reloj del servidor.
+  const [yaEmpezo, setYaEmpezo] = React.useState(() => Date.now() >= startedAtMs);
+
+  React.useEffect(() => {
+    if (Date.now() >= startedAtMs) {
+      setYaEmpezo(true);
+      return;
+    }
+    const id = setInterval(() => {
+      if (Date.now() >= startedAtMs) setYaEmpezo(true);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [startedAtMs]);
 
   // El punto por el que va la intro cuando esta persona entra. Se calcula una
   // sola vez: recalcularlo obligaría a recargar el iframe y el video saltaría.
   const desdeSegundos = React.useMemo(() => {
+    if (!yaEmpezo) return 0;
     const transcurrido = (Date.now() - startedAtMs) / 1000;
     return transcurrido > 0 ? transcurrido : 0;
-  }, [startedAtMs]);
+  }, [startedAtMs, yaEmpezo]);
 
   const src = React.useMemo(
     () => introPlayerUrl(introRef, { startAt: desdeSegundos }),
@@ -72,6 +87,7 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
 
   // ── Cronómetro de respaldo ────────────────────────────────────────────────
   React.useEffect(() => {
+    if (!yaEmpezo) return;
     const restante = durationSec - desdeSegundos + MARGEN_SEGURIDAD_SEG;
     if (restante <= 0) {
       terminar();
@@ -79,7 +95,7 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
     }
     const id = setTimeout(terminar, restante * 1000);
     return () => clearTimeout(id);
-  }, [durationSec, desdeSegundos, terminar]);
+  }, [durationSec, desdeSegundos, terminar, yaEmpezo]);
 
   // ── El reproductor avisa que terminó ──────────────────────────────────────
   React.useEffect(() => {
@@ -130,16 +146,39 @@ export function IntroStage({ introRef, startedAtMs, durationSec, onEnded }: Intr
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', background: '#000' }}>
-      <iframe
-        ref={iframeRef}
-        src={src}
-        title="Introducción de la sesión"
-        allow="autoplay; fullscreen; picture-in-picture"
-        // Sin `allow-top-navigation`: una cortinilla no tiene por qué poder
-        // sacar a nadie de la sala.
-        sandbox="allow-scripts allow-same-origin allow-presentation"
-        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
-      />
+      {yaEmpezo ? (
+        <iframe
+          ref={iframeRef}
+          src={src}
+          title="Introducción de la sesión"
+          allow="autoplay; fullscreen; picture-in-picture"
+          // Sin `allow-top-navigation`: una cortinilla no tiene por qué poder
+          // sacar a nadie de la sala.
+          sandbox="allow-scripts allow-same-origin allow-presentation"
+          style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+        />
+      ) : (
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'grid',
+            placeItems: 'center',
+            color: '#fff',
+            textAlign: 'center',
+            background:
+              'radial-gradient(circle at 50% 42%, rgba(201,168,76,.20), transparent 34%), #050509',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: '30px', marginBottom: '10px' }}>✦</div>
+            <strong style={{ fontSize: '18px' }}>La apertura comenzará a la hora programada</strong>
+            <p style={{ marginTop: '7px', color: 'rgba(255,255,255,.58)', fontSize: '13px' }}>
+              Puedes preparar cámara y micrófono mientras esperas.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Marca de que esto es la apertura y no la sesión */}
       <div

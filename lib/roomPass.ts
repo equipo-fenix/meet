@@ -39,6 +39,13 @@ export type RoomPassResult =
       reason: 'no_secret' | 'malformed' | 'bad_signature' | 'expired' | 'room_mismatch';
     };
 
+/** ID de APEX autenticado por el pase; nunca se sustituye con `roomName`. */
+export function sessionIdFromVerifiedPass(result: RoomPassResult): string | undefined {
+  if (!result.valid) return undefined;
+  const sid = result.payload.sid;
+  return typeof sid === 'string' && sid.trim() ? sid.trim() : undefined;
+}
+
 function b64urlDecode(input: string): Buffer {
   const pad = input.length % 4 === 0 ? '' : '='.repeat(4 - (input.length % 4));
   return Buffer.from(input.replace(/-/g, '+').replace(/_/g, '/') + pad, 'base64');

@@ -1,7 +1,7 @@
 import { randomString } from '@/lib/client-utils';
 import { getLiveKitURL } from '@/lib/getLiveKitURL';
 import { ConnectionDetails } from '@/lib/types';
-import { verifyRoomPass, roomPassEnforced } from '@/lib/roomPass';
+import { verifyRoomPass, roomPassEnforced, sessionIdFromVerifiedPass } from '@/lib/roomPass';
 import { AccessToken, AccessTokenOptions, VideoGrant } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -93,6 +93,9 @@ export async function GET(request: NextRequest) {
     const data: ConnectionDetails = {
       serverUrl: livekitServerUrl,
       roomName: roomName,
+      // Sale del pase ya verificado. Aceptarlo desde la URL permitiría mezclar
+      // la puerta de una sesión con la sala de otra.
+      sessionId: sessionIdFromVerifiedPass(passCheck),
       participantToken: participantToken,
       participantName: effectiveName,
       isHost,
