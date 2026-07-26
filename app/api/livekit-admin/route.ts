@@ -20,11 +20,14 @@
 
 import { EgressClient, RoomServiceClient } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyRoomPass, roomPassEnforced } from '@/lib/roomPass';
+import { sessionIdFromVerifiedPass, verifyRoomPass, roomPassEnforced } from '@/lib/roomPass';
 
 const API_KEY = process.env.LIVEKIT_API_KEY!;
 const API_SECRET = process.env.LIVEKIT_API_SECRET!;
 const LIVEKIT_URL = process.env.LIVEKIT_URL!;
+const APEX_FUNCTIONS_URL =
+  process.env.NEXT_PUBLIC_APEX_FUNCTIONS_URL ??
+  'https://cmblgqzezfzmqkhkunto.supabase.co/functions/v1';
 
 /** LIVEKIT_URL viene en `wss://`; la API de administración se habla por HTTPS. */
 function httpOrigin(): string {
@@ -155,6 +158,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             },
             { status: 500 },
           );
+        }
+
+        const sessionId = sessionIdFromVerifiedPass(passCheck);
+        if (sessionId) {
+          try {
+            const apexRes = await fetch(`${APEX_FUNCTIONS_URL}/webinar-session-finalize`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                session_id: sessionId,
+                pass,
+                room_closed_by_meet: true,
+              }),
+            });
+            if (!apexRes.ok) {
+              const detail = await apexRes.text().catch(() => apexRes.statusText);
+              problemas.push(`apex: ${apexRes.status} ${detail.slice(0, 200)}`);
+            } else {
+              const apexJson = (await apexRes.json().catch(() => null)) as {
+                sala?: { problemas?: string[] };
+              } | null;
+              if (Array.isArray(apexJson?.sala?.problemas)) {
+                problemas.push(...apexJson.sala.problemas);
+              }
+            }
+          } catch (e) {
+            problemas.push(`apex: ${e instanceof Error ? e.message : String(e)}`);
+          }
         }
 
         return NextResponse.json({ ok: true, problemas });
