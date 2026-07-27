@@ -535,6 +535,7 @@ export function FenixRoomLayout({
           {/* ── La barra de abajo ── */}
           <ControlDock
             isHost={isHost}
+            puedeCompartirPantalla={moderation.screenUnlocked}
             totalParticipantes={participants.length}
             manosLevantadas={isHost ? moderation.raisedHands.length : 0}
             sinLeer={sinLeer}
