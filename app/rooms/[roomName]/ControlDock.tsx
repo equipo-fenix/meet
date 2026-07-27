@@ -265,9 +265,9 @@ export function ControlDock({
       if (e?.name === 'NotAllowedError' || e?.name === 'SecurityError') {
         toast.error(
           enIOS
-            ? 'Tu navegador tiene bloqueado el micrófono para esta sala y por eso ya no te lo vuelve a preguntar. Toca «AA» arriba, a la izquierda de la dirección → Ajustes del sitio web → Micrófono → Permitir, y recarga la página.'
-            : 'Tu navegador tiene bloqueado el micrófono para esta sala y por eso ya no te lo vuelve a preguntar. Toca el candado que hay junto a la dirección → Permisos → Micrófono → Permitir, y recarga la página.',
-          { duration: 14000 },
+            ? 'Tu teléfono no le está dando el micrófono a este navegador, y por eso ni siquiera te lo pregunta. Sal de la sesión, entra en Ajustes → Privacidad y seguridad → Micrófono y activa el navegador que estás usando. Después vuelve a entrar.'
+            : 'Tu teléfono tiene bloqueado el micrófono para esta sala, y por eso ni siquiera te lo pregunta. Toca el candado que hay junto a la dirección → Permisos → Micrófono → Permitir, y recarga. Si ahí ya está permitido, revísalo en Ajustes del teléfono → Aplicaciones → tu navegador → Micrófono.',
+          { duration: 16000 },
         );
       } else if (e?.name === 'NotFoundError' || e?.name === 'OverconstrainedError') {
         toast.error(
