@@ -257,7 +257,12 @@ export function ControlDock({
           label="Audio"
           off={!mic.enabled}
           onClick={() => void mic.toggle()}
-          disabled={mic.pending}
+          // A propósito sin `disabled`. Antes se apagaba mientras hubiera una
+          // operación en curso, y bastaba con que una se quedara colgada para
+          // que la persona no pudiera reintentarlo nunca: el botón dejaba de
+          // reaccionar —sin pedir permiso y sin dar error— y ya no había forma
+          // de hablar en toda la sesión. Poder pulsarlo dos veces es un mal
+          // mucho menor que no poder pulsarlo ninguna.
           title={mic.enabled ? 'Silenciar mi micrófono' : 'Activar mi micrófono'}
           extra={<ChevronDispositivos kind="audioinput" />}
         />
