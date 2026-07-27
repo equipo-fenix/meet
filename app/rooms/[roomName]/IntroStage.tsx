@@ -40,6 +40,16 @@ interface IntroStageProps {
   /** Duración declarada al programar la sesión. */
   durationSec: number;
   onEnded: () => void;
+  /**
+   * Se llama con el primer gesto real que ocurre sobre la cortinilla.
+   *
+   * Existe porque el toque hay que devolvérselo a la sala. Mientras la intro
+   * ocupa la pantalla, el alumno del móvil solo puede tocar encima del
+   * reproductor de Vimeo — y un toque dentro de un iframe de otro dominio no
+   * llega a nuestra página. Sin este puente, la sala nunca recibe el gesto que
+   * necesita para poder sonar, y el alumno se queda sordo el resto de la clase.
+   */
+  onGesto?: () => void;
 }
 
 /**
@@ -69,6 +79,7 @@ export function IntroStage({
   clockOffsetMs,
   durationSec,
   onEnded,
+  onGesto,
 }: IntroStageProps) {
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const [silenciada, setSilenciada] = React.useState(true);
@@ -218,6 +229,9 @@ export function IntroStage({
 
   // ── Devolver el sonido al primer gesto ────────────────────────────────────
   const activarSonido = React.useCallback(() => {
+    // Primero la sala, y de forma síncrona: el permiso del navegador dura lo
+    // que dura el gesto. Si esto se retrasa a un `await`, ya es tarde.
+    onGesto?.();
     const ventana = iframeRef.current?.contentWindow;
     if (!ventana) return;
     ventana.postMessage(
@@ -225,7 +239,7 @@ export function IntroStage({
       'https://player.vimeo.com',
     );
     setSilenciada(false);
-  }, []);
+  }, [onGesto]);
 
   React.useEffect(() => {
     if (!silenciada) return;
@@ -282,6 +296,34 @@ export function IntroStage({
         </div>
       )}
 
+      {/*
+        La lámina que recoge el primer toque.
+        ─────────────────────────────────────
+        Aquí estaba el fallo que dejaba mudo al alumno del móvil.
+
+        Mientras corre la cortinilla, lo único que ocupa la pantalla es el
+        reproductor de Vimeo, que vive en un iframe de otro dominio. Un toque
+        dentro de ese iframe NO llega a nuestra página: los `pointerdown` que
+        escuchábamos en `window` jamás se disparaban. El alumno tocaba la
+        pantalla —hacía exactamente lo que le pedíamos— y no pasaba nada. Ni
+        sonaba la intro, ni se desbloqueaba el audio de la sala. Y como el
+        permiso no se concede nunca, seguía sin oír cuando la intro terminaba
+        y empezaba la clase de verdad.
+
+        Esta lámina transparente se pone por encima del iframe y recoge ese
+        toque en nuestro propio documento. Desaparece en cuanto cumple su
+        función, así que no estorba a nadie.
+      */}
+      {silenciada && yaEmpezo && (
+        <div
+          onPointerDown={activarSonido}
+          onTouchStart={activarSonido}
+          onClick={activarSonido}
+          aria-hidden
+          style={{ position: 'absolute', inset: 0, zIndex: 2, cursor: 'pointer' }}
+        />
+      )}
+
       {/* Marca de que esto es la apertura y no la sesión */}
       <div
         style={{
@@ -312,6 +354,7 @@ export function IntroStage({
           onClick={activarSonido}
           style={{
             position: 'absolute',
+            zIndex: 3,
             bottom: '18px',
             left: '50%',
             transform: 'translateX(-50%)',
