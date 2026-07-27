@@ -19,6 +19,7 @@
 import React from 'react';
 import { Track } from 'livekit-client';
 import { useTrackToggle, MediaDeviceMenu, useRoomContext } from '@livekit/components-react';
+import toast from 'react-hot-toast';
 import { REACCIONES } from '@/lib/useReactions';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -236,6 +237,57 @@ export function ControlDock({
 
   const cerrarMenu = React.useCallback(() => setMenu(null), []);
 
+  /**
+   * Enciende o apaga el micrófono, y —esto es lo importante— cuenta en voz alta
+   * lo que salió mal.
+   *
+   * Antes usábamos `mic.toggle()` a secas. Cuando el navegador rechazaba el
+   * permiso, la promesa se rompía, nadie recogía el error y el botón se quedaba
+   * exactamente igual que antes de pulsarlo. Desde fuera parecía un botón roto:
+   * lo tocabas y no pasaba nada, ni permiso, ni aviso, ni micrófono.
+   *
+   * Y el caso más frecuente es justo el más silencioso: si alguien denegó el
+   * micrófono una vez en este sitio, el navegador se lo apunta y a partir de
+   * entonces rechaza al instante, sin volver a preguntar nunca. Por eso con la
+   * cámara sí aparece el diálogo y con el micrófono no. Ningún cambio de código
+   * puede deshacer ese "no" guardado: hay que decirle a la persona dónde
+   * revocarlo. Eso es lo que hace el aviso de abajo.
+   */
+  const alternarMicrofono = React.useCallback(async () => {
+    const queremosEncender = !room.localParticipant.isMicrophoneEnabled;
+    try {
+      await room.localParticipant.setMicrophoneEnabled(queremosEncender);
+    } catch (err) {
+      const e = err as { name?: string; message?: string };
+      const enIOS =
+        typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent);
+
+      if (e?.name === 'NotAllowedError' || e?.name === 'SecurityError') {
+        toast.error(
+          enIOS
+            ? 'Tu navegador tiene bloqueado el micrófono para esta sala y por eso ya no te lo vuelve a preguntar. Toca «AA» arriba, a la izquierda de la dirección → Ajustes del sitio web → Micrófono → Permitir, y recarga la página.'
+            : 'Tu navegador tiene bloqueado el micrófono para esta sala y por eso ya no te lo vuelve a preguntar. Toca el candado que hay junto a la dirección → Permisos → Micrófono → Permitir, y recarga la página.',
+          { duration: 14000 },
+        );
+      } else if (e?.name === 'NotFoundError' || e?.name === 'OverconstrainedError') {
+        toast.error(
+          'No encontramos ningún micrófono disponible. Si tienes auriculares conectados, prueba a desconectarlos y vuelve a intentarlo.',
+          { duration: 10000 },
+        );
+      } else if (e?.name === 'NotReadableError' || e?.name === 'AbortError') {
+        toast.error(
+          'Otra aplicación está usando el micrófono. Cierra las llamadas o grabaciones abiertas y vuelve a intentarlo.',
+          { duration: 10000 },
+        );
+      } else {
+        toast.error(
+          `No pudimos activar el micrófono (${e?.name ?? 'error'}): ${e?.message ?? 'sin detalle'}`,
+          { duration: 10000 },
+        );
+      }
+    }
+  }, [room]);
+
   return (
     <div
       className="fenix-dock"
@@ -256,7 +308,7 @@ export function ControlDock({
           icon={mic.enabled ? '🎙️' : '🔇'}
           label="Audio"
           off={!mic.enabled}
-          onClick={() => void mic.toggle()}
+          onClick={() => void alternarMicrofono()}
           // A propósito sin `disabled`. Antes se apagaba mientras hubiera una
           // operación en curso, y bastaba con que una se quedara colgada para
           // que la persona no pudiera reintentarlo nunca: el botón dejaba de
