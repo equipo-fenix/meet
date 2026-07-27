@@ -511,6 +511,70 @@ function VideoConferenceComponent(props: {
     };
   }, [props.userChoices.audioEnabled, room, handleError]);
 
+  // ── Oír a los demás en el teléfono ───────────────────────────────────────
+  //
+  // Esto es lo que rompía la clase desde el móvil: el alumno entraba, veía al
+  // anfitrión moverse y hablar, y no oía nada. En el ordenador funcionaba, así
+  // que parecía cosa del micrófono del anfitrión.
+  //
+  // No lo era. Safari y Chrome en móvil no dejan que una pestaña empiece a
+  // sonar sin que la persona haya tocado algo primero; el `<audio>` que monta
+  // LiveKit se queda en pausa y no avisa. Había código para desbloquear el
+  // MICRÓFONO — hablar — pero ninguno para desbloquear la REPRODUCCIÓN — oír.
+  // Son dos permisos distintos y solo teníamos uno.
+  //
+  // `room.startAudio()` es justo eso: reanuda los elementos de audio. Tiene
+  // que ocurrir dentro de un gesto real, así que se engancha al primero que
+  // llegue. No se pone `{ once: true }` a propósito: si el primer toque llega
+  // antes de que el navegador esté listo, hace falta el siguiente.
+  React.useEffect(() => {
+    let cancelled = false;
+    let avisado = false;
+
+    const intentar = () => {
+      if (cancelled) return;
+      if (room.canPlaybackAudio) {
+        if (avisado) toast.dismiss('audio-bloqueado');
+        return;
+      }
+      room.startAudio().catch(() => {
+        // Todavía no toca. El próximo gesto lo vuelve a intentar.
+      });
+    };
+
+    // Muchos navegadores sí permiten arrancar solos. Se prueba primero, para
+    // no depender de un toque en quien no tiene el problema.
+    intentar();
+
+    // Y si al segundo y medio sigue mudo, se dice. Un alumno que no oye y no
+    // sabe por qué se sale de la clase; uno al que le pides que toque la
+    // pantalla, toca la pantalla — y ese toque es justamente lo que hace falta.
+    const aviso = setTimeout(() => {
+      if (cancelled || room.canPlaybackAudio) return;
+      avisado = true;
+      toast('Toca la pantalla para escuchar la sesión', {
+        id: 'audio-bloqueado',
+        duration: Infinity,
+        icon: '🔊',
+      });
+    }, 1500);
+
+    room.on(RoomEvent.AudioPlaybackStatusChanged, intentar);
+    window.addEventListener('pointerdown', intentar);
+    window.addEventListener('touchstart', intentar);
+    window.addEventListener('keydown', intentar);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(aviso);
+      toast.dismiss('audio-bloqueado');
+      room.off(RoomEvent.AudioPlaybackStatusChanged, intentar);
+      window.removeEventListener('pointerdown', intentar);
+      window.removeEventListener('touchstart', intentar);
+      window.removeEventListener('keydown', intentar);
+    };
+  }, [room]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
