@@ -26,6 +26,15 @@ export interface RoomPassPayload {
   h?: 0 | 1;
   /** publish — 1 si puede abrir micrófono/cámara */
   p?: 0 | 1;
+  /**
+   * record — 1 si esta sesión se graba.
+   *
+   * Va aquí dentro, y no en la URL, porque la decisión es de la sesión y no
+   * del enlace por el que se entró. Cuando dependía de `?rec=1`, el anfitrión
+   * que entraba por otro botón llegaba sin la marca y la clase no se grababa
+   * — sin que nadie se enterara hasta ir a buscar el vídeo.
+   */
+  rec?: 0 | 1;
   /** session id de APEX, para rastrear */
   sid?: string | null;
   /** expiración, epoch en segundos */
