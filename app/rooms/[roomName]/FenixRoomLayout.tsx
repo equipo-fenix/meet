@@ -369,6 +369,14 @@ export function FenixRoomLayout({
                   clockOffsetMs={clockOffsetMs}
                   durationSec={intro.durationSec}
                   onEnded={() => setIntroCorriendo(false)}
+                  // El toque que ocurre encima de la cortinilla es, muchas
+                  // veces, el único que el alumno del móvil llega a dar antes
+                  // de que empiece la clase. Se aprovecha para desbloquear
+                  // también el audio de la sala: si se pierde ese gesto, el
+                  // alumno se queda sin oír el resto de la sesión.
+                  onGesto={() => {
+                    if (!room.canPlaybackAudio) void room.startAudio().catch(() => {});
+                  }}
                 />
               ) : mainTrackRef ? (
                 <ParticipantTile

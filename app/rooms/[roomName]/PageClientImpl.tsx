@@ -494,12 +494,38 @@ function VideoConferenceComponent(props: {
     if (!isMobile) return;
 
     let cancelled = false;
-    const unlockMic = () => {
-      if (cancelled) return;
+    // Una petición de micrófono a la vez. Dos en paralelo dejan a LiveKit con
+    // una operación que nunca termina — y el botón del dock, que se deshabilita
+    // mientras hay uno en curso, se queda muerto para siempre.
+    let enCurso = false;
+
+    const unlockMic = (ev: Event) => {
+      if (cancelled || enCurso) return;
       if (room.localParticipant.isMicrophoneEnabled) return;
-      room.localParticipant.setMicrophoneEnabled(true).catch((err) => {
-        if (err?.name !== 'NotAllowedError' && err?.name !== 'NotFoundError') handleError(err);
-      });
+
+      // Si el toque cayó sobre la botonera, no nos metemos: esos botones ya
+      // hacen su propio trabajo.
+      //
+      // Aquí estaba el fallo que dejaba el micrófono muerto en el teléfono.
+      // Este desbloqueo se enganchaba al PRIMER toque de la pantalla — y si ese
+      // toque era justamente el del botón del micrófono, se disparaban dos
+      // peticiones a la vez: la nuestra y la del botón. LiveKit se quedaba con
+      // la operación colgada, `pending` no bajaba nunca y el botón, que se
+      // deshabilita mientras hay algo pendiente, dejaba de responder. Ni
+      // reaccionaba, ni pedía permiso, ni daba error. La cámara funcionaba
+      // porque nadie competía con ella.
+      const destino = ev.target as Element | null;
+      if (destino?.closest?.('.fenix-dock')) return;
+
+      enCurso = true;
+      room.localParticipant
+        .setMicrophoneEnabled(true)
+        .catch((err) => {
+          if (err?.name !== 'NotAllowedError' && err?.name !== 'NotFoundError') handleError(err);
+        })
+        .finally(() => {
+          enCurso = false;
+        });
     };
 
     window.addEventListener('pointerdown', unlockMic, { once: true });

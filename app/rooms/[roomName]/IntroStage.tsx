@@ -40,6 +40,16 @@ interface IntroStageProps {
   /** Duración declarada al programar la sesión. */
   durationSec: number;
   onEnded: () => void;
+  /**
+   * Se llama con el primer gesto real que ocurre sobre la cortinilla.
+   *
+   * Existe porque el toque hay que devolvérselo a la sala. Mientras la intro
+   * ocupa la pantalla, el alumno del móvil solo puede tocar encima del
+   * reproductor de Vimeo — y un toque dentro de un iframe de otro dominio no
+   * llega a nuestra página. Sin este puente, la sala nunca recibe el gesto que
+   * necesita para poder sonar, y el alumno se queda sordo el resto de la clase.
+   */
+  onGesto?: () => void;
 }
 
 /**
@@ -47,8 +57,21 @@ interface IntroStageProps {
  * cortar un par de segundos tarde que dejar la sala colgada.
  */
 const MARGEN_SEGURIDAD_SEG = 2;
-const DRIFT_THRESHOLD_SEC = 1.25;
+/**
+ * Cuánto puede desviarse la intro antes de que valga la pena corregirla.
+ *
+ * Saltar el vídeo corta el sonido mientras el reproductor rellena el búfer —
+ * en el teléfono se oye como un tijeretazo. Así que el listón está alto a
+ * propósito: medio segundo de desfase no lo nota nadie; un corte, sí.
+ */
+const DRIFT_THRESHOLD_SEC = 2;
 const DRIFT_CHECK_MS = 4000;
+/**
+ * Tiempo mínimo entre dos correcciones. Aunque el desfase persista, no se
+ * salta en cadena: es preferible entrar en sincronía poco a poco que dejar la
+ * cortinilla tartamudeando.
+ */
+const CORRECCION_MIN_MS = 15000;
 
 export function IntroStage({
   introRef,
@@ -56,11 +79,15 @@ export function IntroStage({
   clockOffsetMs,
   durationSec,
   onEnded,
+  onGesto,
 }: IntroStageProps) {
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const [silenciada, setSilenciada] = React.useState(true);
   const [duracionVimeoSec, setDuracionVimeoSec] = React.useState<number | null>(null);
-  const ultimoTiempoRef = React.useRef<number | null>(null);
+  // La lectura viene acompañada del instante en que llegó. Sin ese sello no se
+  // puede saber si el vídeo va retrasado o si simplemente la respuesta es vieja.
+  const ultimoTiempoRef = React.useRef<{ valor: number; enMs: number } | null>(null);
+  const ultimaCorreccionRef = React.useRef(0);
   const ahoraSincronizado = React.useCallback(() => Date.now() - clockOffsetMs, [clockOffsetMs]);
   // El anfitrión puede preparar la sala antes de la hora. En ese caso conoce
   // la intro, pero no debe reproducirla antes: esperamos al reloj del servidor.
@@ -151,7 +178,7 @@ export function IntroStage({
         typeof data.value === 'number' &&
         Number.isFinite(data.value)
       ) {
-        ultimoTiempoRef.current = data.value;
+        ultimoTiempoRef.current = { valor: data.value, enMs: Date.now() };
       }
       if (data?.event === 'ended' || data?.event === 'finish') terminar();
     };
@@ -165,21 +192,46 @@ export function IntroStage({
     const id = setInterval(() => {
       const ventana = iframeRef.current?.contentWindow;
       if (!ventana) return;
+      // La pregunta se manda ahora; la respuesta llega por `message` un rato
+      // después. Por eso lo que hay guardado es siempre la lectura anterior.
       ventana.postMessage(JSON.stringify({ method: 'getCurrentTime' }), 'https://player.vimeo.com');
+
+      const lectura = ultimoTiempoRef.current;
+      if (!lectura) return;
+
+      // Dónde debía ir la intro en el instante exacto en que el reproductor
+      // contestó — no ahora.
+      //
+      // Aquí estaba el fallo: se comparaba una respuesta de hace cuatro
+      // segundos contra el reloj del momento. Eso fabricaba un desfase de
+      // cuatro segundos que no existía, y como cuatro es más que el umbral,
+      // la corrección saltaba SIEMPRE. Cada cuatro segundos el vídeo daba un
+      // brinco y el sonido se cortaba al rebufferear. En el ordenador el salto
+      // pasa desapercibido; en el teléfono se oye a la perfección.
+      const esperadoEntonces = Math.max(0, (lectura.enMs - clockOffsetMs - startedAtMs) / 1000);
+      if (Math.abs(lectura.valor - esperadoEntonces) < DRIFT_THRESHOLD_SEC) return;
+
+      // Aun habiendo desfase real, no se corrige en cadena.
+      if (Date.now() - ultimaCorreccionRef.current < CORRECCION_MIN_MS) return;
+      ultimaCorreccionRef.current = Date.now();
+
       const esperado = Math.max(0, (ahoraSincronizado() - startedAtMs) / 1000);
-      const actual = ultimoTiempoRef.current;
-      if (typeof actual !== 'number') return;
-      if (Math.abs(actual - esperado) < DRIFT_THRESHOLD_SEC) return;
       ventana.postMessage(
         JSON.stringify({ method: 'setCurrentTime', value: esperado }),
         'https://player.vimeo.com',
       );
+      // La lectura guardada es de antes del salto: si se conserva, la próxima
+      // vuelta vuelve a ver desfase y corrige otra vez sin motivo.
+      ultimoTiempoRef.current = null;
     }, DRIFT_CHECK_MS);
     return () => clearInterval(id);
-  }, [yaEmpezo, startedAtMs, ahoraSincronizado]);
+  }, [yaEmpezo, startedAtMs, clockOffsetMs, ahoraSincronizado]);
 
   // ── Devolver el sonido al primer gesto ────────────────────────────────────
   const activarSonido = React.useCallback(() => {
+    // Primero la sala, y de forma síncrona: el permiso del navegador dura lo
+    // que dura el gesto. Si esto se retrasa a un `await`, ya es tarde.
+    onGesto?.();
     const ventana = iframeRef.current?.contentWindow;
     if (!ventana) return;
     ventana.postMessage(
@@ -187,7 +239,7 @@ export function IntroStage({
       'https://player.vimeo.com',
     );
     setSilenciada(false);
-  }, []);
+  }, [onGesto]);
 
   React.useEffect(() => {
     if (!silenciada) return;
@@ -244,6 +296,34 @@ export function IntroStage({
         </div>
       )}
 
+      {/*
+        La lámina que recoge el primer toque.
+        ─────────────────────────────────────
+        Aquí estaba el fallo que dejaba mudo al alumno del móvil.
+
+        Mientras corre la cortinilla, lo único que ocupa la pantalla es el
+        reproductor de Vimeo, que vive en un iframe de otro dominio. Un toque
+        dentro de ese iframe NO llega a nuestra página: los `pointerdown` que
+        escuchábamos en `window` jamás se disparaban. El alumno tocaba la
+        pantalla —hacía exactamente lo que le pedíamos— y no pasaba nada. Ni
+        sonaba la intro, ni se desbloqueaba el audio de la sala. Y como el
+        permiso no se concede nunca, seguía sin oír cuando la intro terminaba
+        y empezaba la clase de verdad.
+
+        Esta lámina transparente se pone por encima del iframe y recoge ese
+        toque en nuestro propio documento. Desaparece en cuanto cumple su
+        función, así que no estorba a nadie.
+      */}
+      {silenciada && yaEmpezo && (
+        <div
+          onPointerDown={activarSonido}
+          onTouchStart={activarSonido}
+          onClick={activarSonido}
+          aria-hidden
+          style={{ position: 'absolute', inset: 0, zIndex: 2, cursor: 'pointer' }}
+        />
+      )}
+
       {/* Marca de que esto es la apertura y no la sesión */}
       <div
         style={{
@@ -274,6 +354,7 @@ export function IntroStage({
           onClick={activarSonido}
           style={{
             position: 'absolute',
+            zIndex: 3,
             bottom: '18px',
             left: '50%',
             transform: 'translateX(-50%)',
