@@ -38,6 +38,15 @@ export interface HostTool {
 
 interface ControlDockProps {
   isHost: boolean;
+  /**
+   * true cuando esta persona tiene permiso de compartir pantalla.
+   *
+   * Sale de los permisos que el servidor le dio al participante, no de una
+   * decisión de esta interfaz. El anfitrión lo tiene siempre; al asistente se
+   * lo concede el anfitrión desde el panel de participantes, y el botón le
+   * aparece en ese momento, sin recargar nada.
+   */
+  puedeCompartirPantalla: boolean;
   /** Nº de participantes, para la insignia. */
   totalParticipantes: number;
   /** Nº de manos levantadas, para el punto rojo sobre Participantes. */
@@ -217,6 +226,7 @@ function Popover({ children, onClose }: { children: React.ReactNode; onClose: ()
 
 export function ControlDock({
   isHost,
+  puedeCompartirPantalla,
   totalParticipantes,
   manosLevantadas,
   sinLeer,
@@ -436,7 +446,7 @@ export function ControlDock({
           )}
         </div>
 
-        {isHost && (
+        {puedeCompartirPantalla && (
           <DockButton
             icon="🖥"
             label="Compartir"

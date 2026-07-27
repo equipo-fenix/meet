@@ -40,6 +40,14 @@ export interface ModerationState {
    * El host siempre tiene micUnlocked = true (no necesita invitación).
    */
   micUnlocked: boolean;
+  /**
+   * true cuando esta persona puede compartir su pantalla.
+   *
+   * No es una decisión de la interfaz: se lee de los permisos que el servidor
+   * le dio al participante. El anfitrión los tiene todos; al asistente se los
+   * concede el anfitrión uno a uno, y LiveKit avisa del cambio en caliente.
+   */
+  screenUnlocked: boolean;
   /** Acciones disponibles (host o participante según rol) */
   actions: {
     // Host
@@ -49,12 +57,24 @@ export interface ModerationState {
     disableAllCameras: (roomName: string) => Promise<void>;
     inviteToSpeak: (identity: string) => Promise<void>;
     inviteToCamera: (identity: string) => Promise<void>;
+    allowScreenShare: (identity: string, roomName: string) => Promise<void>;
+    revokeScreenShare: (identity: string, roomName: string) => Promise<void>;
     // Participante
     raiseHand: () => Promise<void>;
     lowerHand: () => Promise<void>;
     dismissInvite: (accepted: boolean) => Promise<void>;
   };
 }
+
+/**
+ * `TrackSource.SCREEN_SHARE` del protocolo de LiveKit.
+ *
+ * El número va escrito aquí a propósito: ese enum vive en `@livekit/protocol`,
+ * que llega como dependencia de otras dos y no está declarada en nuestro
+ * package.json. Importarlo funcionaría hoy y se rompería el día que cualquiera
+ * de las dos cambie de versión.
+ */
+const FUENTE_PANTALLA = 3;
 
 // ── Estilos de toast por contexto ──────────────────────────────────────────────
 
@@ -82,6 +102,41 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
   React.useEffect(() => {
     if (isHost) setMicUnlocked(true);
   }, [isHost]);
+
+  // ── ¿Puedo compartir pantalla? ─────────────────────────────────────────────
+  //
+  // La respuesta no la decide esta interfaz: la decide el servidor, y está en
+  // los permisos del participante. `canPublishSources` es una lista blanca —
+  // cuando viene vacía significa "todo permitido" (es el caso del anfitrión), y
+  // cuando trae elementos solo vale lo que esté dentro.
+  //
+  // El anfitrión puede ampliar esa lista a mitad de la clase. LiveKit no obliga
+  // a reconectar para eso: manda el cambio por la señalización y dispara
+  // `ParticipantPermissionsChanged`. Escuchándolo, el botón de compartir
+  // aparece en el segundo en que el anfitrión lo concede.
+  const leerPermisoPantalla = React.useCallback((): boolean => {
+    const permisos = room.localParticipant.permissions;
+    if (!permisos) return false;
+    if (!permisos.canPublish) return false;
+    const fuentes = permisos.canPublishSources as number[] | undefined;
+    if (!fuentes || fuentes.length === 0) return true; // lista vacía = sin restricción
+    return fuentes.includes(FUENTE_PANTALLA);
+  }, [room]);
+
+  const [screenUnlocked, setScreenUnlocked] = React.useState<boolean>(false);
+
+  React.useEffect(() => {
+    const refrescar = () => setScreenUnlocked(leerPermisoPantalla());
+    refrescar();
+    room.on(RoomEvent.LocalTrackPublished, refrescar);
+    room.on(RoomEvent.ParticipantPermissionsChanged, refrescar);
+    room.on(RoomEvent.Connected, refrescar);
+    return () => {
+      room.off(RoomEvent.LocalTrackPublished, refrescar);
+      room.off(RoomEvent.ParticipantPermissionsChanged, refrescar);
+      room.off(RoomEvent.Connected, refrescar);
+    };
+  }, [room, leerPermisoPantalla]);
 
   // ── Recepción de DataMessages ──────────────────────────────────────────────
   React.useEffect(() => {
@@ -163,6 +218,20 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
             break;
           case MSG.HOST_INVITE_CAMERA:
             setPendingInvite('camera');
+            break;
+          case MSG.HOST_GRANTED_SCREEN:
+            toast('El anfitrión te permitió compartir tu pantalla. Ya tienes el botón 🖥.', {
+              duration: 9000,
+              icon: '🖥',
+              style: darkToast,
+            });
+            break;
+          case MSG.HOST_REVOKED_SCREEN:
+            toast('El anfitrión retiró el permiso para compartir pantalla.', {
+              duration: 6000,
+              icon: '🖥',
+              style: warnToast,
+            });
             break;
         }
       }
@@ -267,6 +336,22 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
         console.warn('[mod] disableAllCams error:', e),
       );
       await broadcast({ type: MSG.HOST_DISABLED_ALL_CAMERAS, ts: Date.now() });
+    },
+    [adminFetch, broadcast],
+  );
+
+  const allowScreenShare = React.useCallback(
+    async (identity: string, roomName: string) => {
+      await adminFetch({ action: 'allowScreenShare', roomName, identity });
+      await broadcast({ type: MSG.HOST_GRANTED_SCREEN, identity, ts: Date.now() }, identity);
+    },
+    [adminFetch, broadcast],
+  );
+
+  const revokeScreenShare = React.useCallback(
+    async (identity: string, roomName: string) => {
+      await adminFetch({ action: 'revokeScreenShare', roomName, identity });
+      await broadcast({ type: MSG.HOST_REVOKED_SCREEN, identity, ts: Date.now() }, identity);
     },
     [adminFetch, broadcast],
   );
@@ -401,6 +486,8 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
     raisedHands,
     pendingInvite,
     micUnlocked,
+    // El anfitrión no necesita que nadie le conceda nada.
+    screenUnlocked: isHost || screenUnlocked,
     actions: {
       muteParticipant,
       muteAll,
@@ -408,6 +495,8 @@ export function useRoomModeration(room: Room, isHost: boolean): ModerationState 
       disableAllCameras,
       inviteToSpeak,
       inviteToCamera,
+      allowScreenShare,
+      revokeScreenShare,
       raiseHand,
       lowerHand,
       dismissInvite,

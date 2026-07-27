@@ -25,6 +25,14 @@ export const MSG = {
   HOST_DISABLED_ALL_CAMERAS: 'HOST_DISABLED_ALL_CAMERAS',
   HOST_INVITE_SPEAK: 'HOST_INVITE_SPEAK',
   HOST_INVITE_CAMERA: 'HOST_INVITE_CAMERA',
+  /**
+   * El permiso de compartir pantalla lo reparte el servidor, no este mensaje:
+   * para cuando llega, LiveKit ya reescribió los permisos del participante y el
+   * botón ya le apareció solo. Esto es únicamente el aviso, para que no tenga
+   * que enterarse mirando la barra a ver si cambió algo.
+   */
+  HOST_GRANTED_SCREEN: 'HOST_GRANTED_SCREEN',
+  HOST_REVOKED_SCREEN: 'HOST_REVOKED_SCREEN',
 
   // Cualquiera → todos
   /**

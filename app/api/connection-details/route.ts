@@ -2,7 +2,7 @@ import { randomString } from '@/lib/client-utils';
 import { getLiveKitURL } from '@/lib/getLiveKitURL';
 import { ConnectionDetails } from '@/lib/types';
 import { verifyRoomPass, roomPassEnforced, sessionIdFromVerifiedPass } from '@/lib/roomPass';
-import { AccessToken, AccessTokenOptions, VideoGrant } from 'livekit-server-sdk';
+import { AccessToken, AccessTokenOptions, TrackSource, VideoGrant } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_KEY = process.env.LIVEKIT_API_KEY;
@@ -122,14 +122,36 @@ function createParticipantToken(
 ) {
   const at = new AccessToken(API_KEY, API_SECRET, userInfo);
   at.ttl = isHost ? '24h' : '8h';
+  const puedePublicar = isHost || canPublish;
   const grant: VideoGrant = {
     room: roomName,
     roomJoin: true,
     // El anfitrión siempre puede publicar; al asistente se lo concede el pase.
-    canPublish: isHost || canPublish,
+    canPublish: puedePublicar,
     canPublishData: true,
     canSubscribe: true,
     ...(isHost && { roomAdmin: true }), // solo el host tiene control admin
+    // ── Compartir pantalla: apagado de fábrica para quien no es anfitrión ────
+    //
+    // `canPublishSources` es una lista blanca: cuando está puesta, manda sobre
+    // `canPublish` y solo se puede publicar lo que aparezca en ella. Al asistente
+    // le damos cámara y micrófono, no pantalla. Así el anfitrión puede decir
+    // "compárteme tu pantalla" y concederlo en ese momento desde el panel de
+    // participantes — el servidor amplía la lista con `updateParticipant` y el
+    // botón aparece solo en la pantalla de esa persona.
+    //
+    // Que sea un permiso de verdad y no un botón escondido importa: antes el
+    // botón se ocultaba en la interfaz pero el token lo permitía todo, así que
+    // cualquiera con la consola abierta podía ponerse a compartir su escritorio
+    // en mitad de una clase.
+    //
+    // Solo se pone la lista cuando la persona puede publicar algo. Si el pase
+    // dice que no publica (`p: 0`), dejarla vacía sería inofensivo pero poner
+    // una lista con cámara y micrófono le devolvería un permiso que el pase le
+    // había quitado.
+    ...(!isHost && puedePublicar
+      ? { canPublishSources: [TrackSource.CAMERA, TrackSource.MICROPHONE] }
+      : {}),
   };
   at.addGrant(grant);
   return at.toJwt();

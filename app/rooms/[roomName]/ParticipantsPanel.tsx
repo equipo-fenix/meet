@@ -36,6 +36,24 @@ function esAnfitrion(p: Participant): boolean {
   }
 }
 
+/** `TrackSource.SCREEN_SHARE` del protocolo de LiveKit. Ver `useRoomModeration`. */
+const FUENTE_PANTALLA = 3;
+
+/**
+ * ¿Esta persona puede compartir su pantalla ahora mismo?
+ *
+ * `canPublishSources` es una lista blanca. Vacía significa "sin restricción" —
+ * es lo que tiene el anfitrión. Con elementos, solo vale lo que esté dentro, y
+ * al asistente le entra sin la pantalla hasta que el anfitrión se la conceda.
+ */
+function puedeCompartir(p: Participant): boolean {
+  const permisos = p.permissions;
+  if (!permisos || !permisos.canPublish) return false;
+  const fuentes = permisos.canPublishSources as number[] | undefined;
+  if (!fuentes || fuentes.length === 0) return true;
+  return fuentes.includes(FUENTE_PANTALLA);
+}
+
 // ── Botones ───────────────────────────────────────────────────────────────────
 
 function botonAccion(color: string, ocupado?: boolean): React.CSSProperties {
@@ -100,6 +118,12 @@ export function ParticipantsPanel({
   const [confirmarSilencio, setConfirmarSilencio] = React.useState(false);
   const [confirmarCamaras, setConfirmarCamaras] = React.useState(false);
   const [ocupado, setOcupado] = React.useState<string | null>(null);
+
+  // Lo que el anfitrión acaba de conceder o retirar, antes de que llegue el
+  // reflejo del servidor. `useParticipants` no vuelve a pintar cuando cambian
+  // los permisos de otro participante, así que sin esto el botón se quedaría
+  // diciendo "Permitir pantalla" después de haberla permitido.
+  const [pantallaLocal, setPantallaLocal] = React.useState<Record<string, boolean>>({});
 
   const participantes = useParticipants();
   const { localParticipant } = useLocalParticipant();
@@ -242,6 +266,7 @@ export function ParticipantsPanel({
           const micOn = p.isMicrophoneEnabled;
           const camOn = p.isCameraEnabled;
           const mano = manos.has(p.identity);
+          const pantalla = pantallaLocal[p.identity] ?? puedeCompartir(p);
           const reaccion = reacciones[p.identity];
           const nombre = p.name || p.identity || '?';
 
@@ -360,6 +385,33 @@ export function ParticipantsPanel({
                       style={botonAccion('#3b82f6', ocupado === `icam-${p.identity}`)}
                     >
                       Pedir cámara
+                    </button>
+                  )}
+                  {/* Compartir pantalla — se concede a esta persona, no a la
+                      sala. Es el permiso que el anfitrión da cuando dice
+                      "compárteme tu pantalla": el botón 🖥 le aparece a ella en
+                      el acto y a nadie más. */}
+                  {pantalla ? (
+                    <button
+                      onClick={conOcupado(`nopant-${p.identity}`, async () => {
+                        await actions.revokeScreenShare(p.identity, roomName);
+                        setPantallaLocal((m) => ({ ...m, [p.identity]: false }));
+                      })}
+                      disabled={ocupado === `nopant-${p.identity}`}
+                      style={botonAccion('#ef4444', ocupado === `nopant-${p.identity}`)}
+                    >
+                      Quitar pantalla
+                    </button>
+                  ) : (
+                    <button
+                      onClick={conOcupado(`pant-${p.identity}`, async () => {
+                        await actions.allowScreenShare(p.identity, roomName);
+                        setPantallaLocal((m) => ({ ...m, [p.identity]: true }));
+                      })}
+                      disabled={ocupado === `pant-${p.identity}`}
+                      style={botonAccion('#a78bfa', ocupado === `pant-${p.identity}`)}
+                    >
+                      Permitir pantalla
                     </button>
                   )}
                 </div>

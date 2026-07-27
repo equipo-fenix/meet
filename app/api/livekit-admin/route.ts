@@ -6,6 +6,8 @@
  *   muteAll           — silencia todos los micrófonos de la sala
  *   disableCamera     — silencia (mutes) la cámara de un participante específico
  *   disableAllCameras — silencia todas las cámaras de la sala
+ *   allowScreenShare  — concede a un participante el permiso de compartir pantalla
+ *   revokeScreenShare — se lo retira (y le tumba la pantalla si la estaba compartiendo)
  *   endSession        — termina la sesión para todos y cierra la grabación
  *
  * Nota: LiveKit no permite apagar forzosamente el dispositivo en el cliente —
@@ -18,7 +20,7 @@
  * era cuestión de mandar un POST.
  */
 
-import { EgressClient, RoomServiceClient } from 'livekit-server-sdk';
+import { EgressClient, RoomServiceClient, TrackSource } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { sessionIdFromVerifiedPass, verifyRoomPass, roomPassEnforced } from '@/lib/roomPass';
 
@@ -158,6 +160,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               ),
           ),
         );
+        return new NextResponse(null, { status: 200 });
+      }
+
+      // ── Compartir pantalla, concedido persona a persona ────────────────────
+      //
+      // El asistente entra con una lista blanca de fuentes que solo tiene cámara
+      // y micrófono (ver `connection-details`). Aquí el anfitrión la amplía o la
+      // recorta en caliente: `updateParticipant` reescribe los permisos del
+      // participante y LiveKit se los notifica al instante por la señalización,
+      // sin reconectar ni recargar. El botón de "Compartir" le aparece —o le
+      // desaparece— en ese mismo segundo.
+      //
+      // Se conservan `canPublish`, `canSubscribe` y `canPublishData` tal como
+      // los tenía: `updateParticipant` reemplaza el bloque de permisos entero,
+      // no lo mezcla. Enviar solo `canPublishSources` dejaría a la persona sin
+      // poder mandar datos y se le romperían el chat y la mano levantada.
+      case 'allowScreenShare':
+      case 'revokeScreenShare': {
+        if (!identity) return new NextResponse('Missing identity', { status: 400 });
+        const conceder = action === 'allowScreenShare';
+        const participant = await svc.getParticipant(roomName, identity);
+        const actuales = participant.permission;
+
+        const base = [TrackSource.CAMERA, TrackSource.MICROPHONE];
+        const fuentes = conceder
+          ? [...base, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO]
+          : base;
+
+        await svc.updateParticipant(roomName, identity, undefined, {
+          canSubscribe: actuales?.canSubscribe ?? true,
+          canPublish: actuales?.canPublish ?? true,
+          canPublishData: actuales?.canPublishData ?? true,
+          hidden: actuales?.hidden ?? false,
+          canPublishSources: fuentes,
+        });
+
+        // Quitar el permiso no tumba lo que ya se está publicando: LiveKit deja
+        // de aceptar pistas nuevas, pero la que ya está en el aire sigue. Si el
+        // anfitrión corta el permiso a mitad de una pantalla compartida, lo que
+        // quiere es que esa pantalla deje de verse ya.
+        if (!conceder) {
+          const pantallas = participant.tracks.filter(
+            (t) => Number(t.source) === TrackSource.SCREEN_SHARE,
+          );
+          await Promise.all(
+            pantallas.map((t) =>
+              svc.mutePublishedTrack(roomName, identity, t.sid, true).catch(() => {}),
+            ),
+          );
+        }
+
         return new NextResponse(null, { status: 200 });
       }
 
