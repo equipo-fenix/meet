@@ -131,14 +131,32 @@ export default function Page() {
       </div>
 
       {/* 14-nov: Seguridad (Zeus) pide que toda página pública de Fénix enlace su política de privacidad y sus términos. */}
-      <p style={{ marginTop: '40px', fontSize: '12px', color: '#6a6a85', textAlign: 'center', lineHeight: 1.8 }}>
+      <p
+        style={{
+          marginTop: '40px',
+          fontSize: '12px',
+          color: '#6a6a85',
+          textAlign: 'center',
+          lineHeight: 1.8,
+        }}
+      >
         © Fénix Academy LLC · meet.academyfenix.com
         <br />
-        <a href="https://academyfenix.com/privacidad" target="_blank" rel="noopener noreferrer" style={{ color: '#8a8aa5' }}>
+        <a
+          href="https://academyfenix.com/privacidad"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: '#8a8aa5' }}
+        >
           Política de privacidad
         </a>
         {' · '}
-        <a href="https://academyfenix.com/terminos" target="_blank" rel="noopener noreferrer" style={{ color: '#8a8aa5' }}>
+        <a
+          href="https://academyfenix.com/terminos"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: '#8a8aa5' }}
+        >
           Términos y condiciones
         </a>
       </p>
